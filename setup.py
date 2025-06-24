@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='asap',
-    version='0.1.0',    # Initial version
+    version='0.1',    # Initial version
     author='Paul I. Cristofari',
     author_email='paul.ivan.cristofari@gmail.com',
     description='A Spectra Analysis Pipeline',
@@ -31,6 +31,7 @@ setup(
         "ultranest",
         "corner",
         "tqdm",
+        "scipy",
     ],
     entry_points={
         'console_scripts': [
