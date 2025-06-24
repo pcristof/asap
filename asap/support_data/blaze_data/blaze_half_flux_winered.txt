@@ -1,0 +1,26 @@
+## Here are the wavelength that define the 50% flux between overlaping orders in the earth reference frame.
+961.5
+967.5
+972.25
+977.75
+983.25
+988.75
+994.25
+1000
+1005.75
+1011.5
+1017.25
+1023
+1029
+1035.25
+1041.25
+1047.5
+1053.5
+1059.75
+1066
+1072.5
+1079.5
+1085.75
+1092.5
+1099.5
+1106
