@@ -98,61 +98,12 @@ def main():
     ## Regions file
     region_file = SA.linelist
     #
-    # SA.update_teffs(np.arange(4500, 5400, 100)) ## don't have 3900 on laptop
-    # SA.update_teffs(np.arange(3600, 4500, 100)) ## don't have 3900 on laptop
-    # SA.update_teffs(np.arange(3000, 3500, 100))
-    # SA.update_loggs(np.arange(4.0, 6.0, 0.5))
-    #SA.update_mhs(np.arange(-1.0, 1.0, 0.5))
-    # SA.update_mhs(np.arange(-0.75, 1.0, 0.25))
-    # SA.update_teffs(np.arange(3700, 4000, 100)) ## don't have 3900 on laptop
-    # SA.update_loggs(np.arange(4.0, 5.5, 0.5)) ## don't have 3900 on laptop
-    # SA.update_mhs(np.arange(-0.5, 1.0, 0.5)) ## don't have 3900 on laptop
-    # SA.update_loggs(np.arange(4.0, 6.0, 0.5)) ## don't have 3900 on laptop
-
-    # The following is for fast debugging
-    # SA.update_teffs(np.arange(3200, 3400, 100))
-    # SA.update_loggs(np.arange(5.0, 6.0, 0.5))
-    # SA.update_mhs(np.arange(-0.50, 0.0, 0.25))
     ##############################################
     #### ---- LOAD OBS, REGIONS AND GRID ---- ####
     ##############################################
     #
     print('---- Loading observations ----')
     med_wvl, med_spectrum, med_err, berv = SA.load_obs(infile)
-
-    # ####################################
-    # if np.any(np.isnan(med_wvl)):
-    #     ## Some people put NaNs in the wavelengths... don't ask.
-    #     ## Here is a fix:
-    #     new_med_wvl = np.empty(med_wvl.shape)
-    #     prev_high = 0 ## highest wvl of the previous order 
-    #     for r in range(len(med_wvl)):
-    #         ## Let's fit a polynomial to that
-    #         from irap_tools import normalizationTools as norm_tools
-    #         x = np.arange(len(med_wvl[r]), dtype=float)
-    #         idx = np.where(~np.isnan(med_wvl[r]))
-    #         poly_order = 3
-    #         if len(x[idx])==2:
-    #             poly_order = 1
-    #         elif len(x[idx])<2:
-    #             poly_order = 0
-            
-    #         if poly_order>0:
-    #             coeffs, _ = norm_tools.fit_poly(x[idx], med_wvl[r][idx], degree=poly_order)
-    #             fit = norm_tools.poly1d(x, coeffs)
-    #             ## fit is the new wavelength for this order
-    #             new_med_wvl[r] = fit
-    #             prev_high = new_med_wvl[r][-1]
-    #         else:
-    #             ## In that case we have a problem.
-    #             ## We start from the last wavelength of the previous order
-    #             ## We end with the a default value of 25000 (like for SPIRou).
-    #             ## It shouldn't really matter because this is full of NaNs, that we are going to ignore.
-    #             next_low = 25000
-    #             new_med_wvl[r] = np.linspace(prev_high, next_low, len(new_med_wvl[r]), dtype=float)
-    #             # print('Too many NaNs in the wavelengths')
-    #     med_wvl = new_med_wvl
-    # ##########################################
 
     print('done loading observation')
     print('------------------------------')
@@ -161,94 +112,8 @@ def main():
                                                         med_spectrum, med_err, 
                                                         berv)
 
-    # SA.replace_observation_from_file()
-
     nwvls, grid_n, teffs, loggs, mhs, alphas = SA.load_grid(SA.pathtogrid, regions)
     print('Done loading grid')
-
-    # from IPython import embed
-    # embed()
-    # Are the spectra here the same as the spectra in the stored directory?
-    # Load the file:
-    specfile = '/Users/pcristofari/Data/zeeturbo-grids/spectra-zeeturbo-v2/hdf5-spirou-highteff/4750g3.5z-0.25a0.00b0000p0.0rot90.00beta0.00.hdf5'
-    import h5py
-    with h5py.File(specfile, 'r') as h5f:
-        if 'wavelink' in h5f.keys():
-            w = h5f['wavelink']['wave'][()]
-        else:
-            w = h5f['wave'][()]
-        w = tls.convert_lambda_in_vacuum(w)
-        s = h5f['norm_flux'][()]
-    # plt.figure()
-    # plt.plot(nwvls.T, grid_n[0, 0, 0, 0, 0].T)
-    # plt.plot(w.T, s.T)
-    # plt.show()
-
-    _T = 4750; _L=3.5; _M=-0.25; _A=0.00
-    vb = 0
-    SA.vinstru=0.1
-
-    fit = SA.gen_spec(SA.obs_wvl, SA.obs_flux, SA.obs_err, 
-                        SA.nan_mask, SA.nwvls, SA.grid_n, 
-                        SA.coeffs, _T, _L, _M, _A,
-                        SA.teffs, SA.loggs, SA.mhs, SA.alphas, vb,
-                        SA.rv, SA.vsini, SA.vmac, SA.veilingFacToFit, 
-                        SA._T2, SA.fillTeffs)
-
-
-    # ## --------------------
-    # ## DEBUGGING
-    # from IPython import embed
-    # embed()
-    # # specfile = '/Users/pcristofari/Data/zeeturbo-grids/spectra-zeeturbo-v2/hdf5-spirou-highteff/4750g3.5z-0.25a0.00b0000p0.0rot90.00beta0.00.hdf5'
-    # # import h5py
-    # # # from irap_tools import analysis_tools as tls
-    # # with h5py.File(specfile, 'r') as h5f:
-    # #     if 'wavelink' in h5f.keys():
-    # #         w = h5f['wavelink']['wave'][()]
-    # #     else:
-    # #         w = h5f['wave'][()]
-    # #     w = tls.convert_lambda_in_vacuum(w)
-    # #     s = h5f['norm_flux'][()]
-    # plt.figure()
-    # plt.plot(nwvls.T, grid_n[0, 0, 0, 0, 0].T, color='black')
-    # plt.plot(nwvls.T, grid_n[0, 0, 0, 1, 0].T, color='cyan')
-    # plt.plot(SA.obs_wvl.T, fit.T, '--', color='red')
-    # plt.show()
-
-    # ## ----------------------
-
-
-    # plt.figure()
-    # plt.plot(nwvls.T, grid_n[0, 0, 0, 0, 0].T, color='black')
-    # plt.plot(SA.obs_wvl.T, fit.T, color='red')
-    # plt.show()
-
-    ## This is debugging
-    # SA.adjust_errors() ## This will adjust the error bars based on the results file
-
-    ## Create a mask to avoid pixels know to contain systematics.
-    # SA.exclude_pixels()
-
-    # from IPython import embed
-    # embed()
-    # regions = SA.mask_small_lines(0.1)
-    # SA.pre_norm_obs() ## We renormalize the spectra
-    # SA.pre_norm_grid() ## We renormalize the spectra
-    # SA.set_adjcont(False)
-
-    # plt.figure()
-    # plt.plot(nwvls.T, grid_n[0,0,0,1,1].T, color='black')
-    # plt.plot(SA.nwvls.T, SA.grid_n[0,0,0,1,1].T, color='red')
-    # plt.show()
-
-    # from IPython import embed
-    # embed()
-
-    ## SA.get_grid was used for debugging -> Reproduces what was done in the 
-    ## chi2 minimization code. Does not support magnetic fields, does not read
-    ## zTurbo.
-    # nwvls, grid_n, teffs, loggs, mhs, alphas = SA.get_grid()
 
     ##############################################################################
     ##############################################################################
@@ -278,8 +143,6 @@ def main():
     if SA.renorm:
         SA.compute_normFactor(SA.normFactor) ## This will bypass apply a normalization factor to
                                 ## the lnlike function
-    # SA.set_ncores(ncores) ## Number of cores to use for the MCMC
-    # SA.mcmc()
 
     #################################
     #### ---- MCMC ANALYSIS ---- ####
@@ -302,19 +165,6 @@ def main():
     def prior_transform(u):
         '''I am trying to now implement a Nested sampling approach with dynasty instead of a MCMC.
         This is the prior_transform function required by dynasty for uniform priors.'''
-        ##
-        # if u is None:
-        #     _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
-        #     vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
-        #     coeffs = self.coeffs; veilingFac = self.veilingFac; _fillTeffs = self.fillTeffs
-        # else:
-        #     coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFac, \
-        #        _T2, _fillTeffs = self.unpackpar(u)
-        
-        ## Compute the prior of each of the parameter:
-        ## Temperature between
-        ## we scale the "unit cube"
-        #
         ## Run through conditions
         nbOfFields = len(SA.bs) ## This will helps us unpack par
         ranges = [] ## Those are the ranges for priors
@@ -379,22 +229,17 @@ def main():
     #
     ndim = SA.ndim ## To avoid class call in MCMC
 
-    # print('DONE')
-    # exit()
-
     #####################################
     #### ---- RUN MCMC ANALYSIS ---- ####
     #####################################
 
     import time
-    import multiprocessing
     from multiprocessing import Pool
     from multiprocessing import get_context
     import emcee
     import os
 
     os.environ["OMP_NUM_THREADS"] = "1"
-    #multiprocessing.set_start_method("fork")
 
     # Set up the backend
     # Don't forget to clear it in case the file already exists
