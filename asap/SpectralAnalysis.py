@@ -252,7 +252,7 @@ def filter_lines(spectrum, models):
         _min = np.min(modelsT[pix])
         _max = np.max(modelsT[pix])
         _std = np.std(modelsT[pix])
-        if (spectrum[pix]>_min) & (spectrum[pix]<_max):
+        if (spectrum[pix]>_min) and (spectrum[pix]<_max):
             _mask = True
         else:
             _mask = False
@@ -2859,6 +2859,28 @@ class SpectralAnalysis:
         self.sampler = sampler
         return sampler
 
+    #### Some functions
+    ## This implementation is much faster. Becomes the default.
+    def count_elements(self, arr):
+        '''To create a histogram'''
+        # sortarr = np.sort(arr)
+        values, counts = np.unique(arr, return_counts = True)
+        hist = {}
+        for iv in range(len(values)):
+            hist[values[iv]] = counts[iv]
+        return hist
+
+    def maxdir(self, mydir):
+        '''Find max in dir'''
+        maxval = 0
+        maxkey = 0
+        for key in mydir.keys():
+            _val = mydir[key]
+            if _val > maxval:
+                maxkey = key
+                maxval = _val
+        return maxkey, maxval
+
     def save_results(self):
         '''Function to save the results of the MCMC'''
         if self.sampler is not None:
@@ -2866,10 +2888,619 @@ class SpectralAnalysis:
                 samples = np.array([self.sampler.results.samples])
             else:
                 samples = self.sampler.get_chain()
+                log_prob_walkers_noflat_0 = self.sampler.get_log_prob()
             if self.logCoeffs:
                 samples[:,:,:len(self.bs)-1] = np.exp(samples[:,:,:len(self.bs)-1])
             np.save(self.opath+"samples", samples)
             np.save(self.opath+"weights", samples)
+
+        ## Reasign        
+        samples_noflat_0 = samples
+        data = {}
+        data['nsteps'] = len(samples_noflat_0)
+        data['burning'] = round(0.5*data['nsteps']) ## 50% by default
+        data['bs'] = self.bs
+
+        #### REDISCARD - If user requested to discard the samples
+        ## Recompute the burning period
+        ## Take the samples after burning period
+        samples_noflat = samples_noflat_0[data['burning']:]
+        log_prob_walkers_noflat = log_prob_walkers_noflat_0[data['burning']:]
+
+        #### Compute the number of fields in the fit
+        nbOfFields = len(self.bs)-1
+        if not self.fitFields:
+            nbOfFields = 1
+        data['nbOfFields'] = nbOfFields
+        data['nbOfFillingFac'] = nbOfFields+1
+        
+        #### Flatten the samples
+        ishape = np.shape(samples_noflat)
+        nshape = (ishape[0] * ishape[1], ishape[2])
+        ssamples = np.reshape(np.copy(samples_noflat), nshape) ## Those are the new flatten samples
+        log_prob_walkers = np.concatenate(log_prob_walkers_noflat, -1)
+
+        ## This is taking the average of the 5% of the walkers
+        percent = .05
+        nblim = int(round(percent*len(log_prob_walkers))) ## Thats 5%
+        thslikelihood = np.sort(log_prob_walkers)[-nblim]
+        idx50 = np.where(log_prob_walkers>=thslikelihood)
+        nbofvals2 = len(idx50[0])
+
+        labels = self.return_labels()
+        correctRV = True
+        if correctRV:
+            #### Recenter the radial velocity
+            ## We have to change the values of the RV for all the samples
+            ## Find the index corresponding to the RV
+            is_rv = np.array(['rv' in labels[i].lower() for i in range(len(labels))])
+            if np.all(is_rv==False):
+                ## RV was not fitted, ignore that step
+                pass
+            else:
+                where_rv = np.where(is_rv)[0][0]
+                #### Recenter the radial velocity
+                ## !!! This is to make a nice plot but the value then has little sense
+                subssamples = ssamples.T[where_rv] ## Those are the rvs
+                subssamples = subssamples - np.median(subssamples)
+                ssamples.T[where_rv] = ssamples.T[where_rv] - np.median(ssamples.T[where_rv])
+
+        ## Compute the mean field from the samples
+        if self.fitFields:
+            subssamples = ssamples.T[:data['nbOfFields']]
+            meanfield = np.sum(subssamples.T * data['bs'][1:], axis=1) ## only from magnetic coefficients
+
+        ## Compute the first coeff and put it in place
+        if self.fitFields:
+            subssamples = (ssamples.T)[:data['nbOfFields']]
+            firstcoeff = 1 - np.sum(subssamples, axis=0)
+            #
+            nssamples = np.empty((len(ssamples), len(ssamples[0])+1)).T
+            nssamples[0] = firstcoeff
+            for i in range(len(ssamples[0])):
+                nssamples[i+1] = (ssamples.T)[i]
+            nssamples = nssamples.T
+            ## Add the label for non-magnetic component to list of labels
+            labels.insert(0, r'$a_0$')
+        else:
+            nssamples = ssamples
+
+        ndim = len(labels) ## dimensions of nssamples
+        data['ndim'] = ndim
+
+        data['gen_files'] = []
+
+
+        ###################################
+        #### PLOT 1 - FULL CORNER PLOT ####
+        ###################################
+        import corner
+
+        cornerfont = 25
+        CORNER_KWARGS = dict(
+            smooth=0.5,
+            label_kwargs=dict(fontsize=cornerfont),
+            title_kwargs=dict(fontsize=cornerfont),
+            quantiles=[0.16, 0.5, 0.84], # That's 1 sigma
+            # quantiles=[0.02, 0.5, 0.98], # That's 3 sigma
+            verbose=False,
+            titles=["" for i in range(len(labels))],
+            # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
+            # plot_density=False,
+            # plot_datapoints=False,
+            fill_contours=True,
+            show_titles=True,
+            max_n_ticks=3,
+            # title_fmt=".2E",
+            labels=labels
+        )
+
+        plottrig = True
+        if plottrig:
+            print("-> Generating full corner plot")
+            fig = corner.corner(nssamples, **CORNER_KWARGS)
+
+            ## Now we want to remove the equal sign from titles
+            for i in range(len(fig.axes)):
+                fig.axes[i].set_title(fig.axes[i].title.get_text().replace("=", ''))
+
+            ## Make the subplot smaller?
+            # fig.subplots_adjust(right=1.5,top=1.5)
+
+            ## Make the ticks bigger
+            for ax in fig.get_axes():
+                ax.tick_params(axis='both', labelsize=cornerfont-5)
+                ax.title.set_fontsize("{}".format(cornerfont))
+
+            max50 = nssamples[idx50]
+            max = np.mean(max50, axis=0)
+
+            # Extract the axes
+            _ndim = data['ndim']
+            axes = np.array(fig.axes).reshape((_ndim, _ndim))
+            for i in range(_ndim):
+                for j in range(i):
+                    ax = axes[i, j]
+                    ax.axhline(max[i], color='red')
+                    ax.axvline(max[j], color='red')
+
+            for i in range(_ndim):
+                ax = axes[i, i]
+                ax.axvline(max[i], color='red')
+
+            plt.savefig(self.opath+'corner.pdf', bbox_inches='tight')
+            plt.close()
+            data['gen_files'].append('corner.pdf')
+
+
+        ################################
+        #### PLOT 2 - <B> HISTOGRAM ####
+        ################################
+
+
+        if plottrig:
+            print("-> Generating <B> histogram")
+            ## Now plot the B field only
+            if self.fitFields:
+                _ndim = 1
+                _labels = ['<B> (kG)']
+                CORNER_KWARGS = dict(
+                    smooth=0.5,
+                    label_kwargs=dict(fontsize=18),
+                    title_kwargs=dict(fontsize=18),
+                    quantiles=[0.16, 0.5, 0.84],
+                    # titles=["" for i in range(len(labels))],
+                    # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
+                    # plot_density=False,
+                    # plot_datapoints=False,
+                    fill_contours=True,
+                    show_titles=True,
+                    max_n_ticks=3,
+                    # title_fmt=".2E",
+                    labels=_labels
+                )
+                ## Make the ticks bigger
+                for ax in fig.get_axes():
+                    ax.tick_params(axis='both', labelsize=16)
+                    ax.title.set_fontsize("16")
+                ## Corner plots
+                fig = corner.corner(meanfield,**CORNER_KWARGS)
+                # Extract the axes
+                axes = np.array(fig.axes).reshape((_ndim, _ndim))
+                ## Compute max likelihood
+                ## There are two alternatives posible
+                #
+                # 1 - get the maximum of the distributions
+                res = self.count_elements(np.round(meanfield, 3))
+                maxres = self.maxdir(res)
+                #
+
+                # from IPython import embed
+                # embed()
+                # 2 - get the maximum of likelihood for the distribution
+                idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
+                maxpos = meanfield[idx]
+                #
+                # from IPython import embed
+                # embed()
+                # THISISATEST: we try to take the average of the maxima of the 50 highest points
+                # idxsort = np.argsort(log_prob_walkers)
+                # sortedmeanfield = meanfield[idxsort]
+                # max50 = sortedmeanfield[-50:]
+                max50 = meanfield[idx50]
+                maxpos = np.array([np.mean(max50)])
+
+                ax = axes[0,0]
+                ax.axvline(maxres[0], color='black')
+                ax.axvline(maxpos[0], color='red')
+
+                # subssamples = nssamples.T[1:nbOfFields]
+                # meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
+                mcmc_meanfield = np.percentile(meanfield, [16, 50, 84])
+                q_meanfield = np.diff(mcmc_meanfield)
+                meanfield_tradi = mcmc_meanfield[1]
+                emeanfield_tradi = np.mean(q_meanfield)
+
+                # Store the result in a variable
+                maxproba_meanfield = maxpos[0]
+                maxdistrib_meanfield = maxres[0]
+                #
+                emaxproba_meanfield = emeanfield_tradi
+                emaxdistrib_meanfield = emeanfield_tradi
+                #
+                plt.savefig(self.opath+'b_histogram.pdf')
+                plt.close()
+                data['gen_files'].append('b_histogram.pdf')
+
+
+        ############################
+        #### PLOT 3 - a0 -- <B> ####
+        ############################
+
+
+        if plottrig:
+            print("-> Generating the a0 vs <B> plot")
+            ## Now plot the B field and non mag component
+            if self.fitFields:
+                _labels = ['<B> (kG)', r"$a_0$"]
+                _ndim = len(_labels)
+                CORNER_KWARGS = dict(
+                    smooth=0.5,
+                    label_kwargs=dict(fontsize=18),
+                    title_kwargs=dict(fontsize=18),
+                    quantiles=[0.16, 0.5, 0.84],
+                    titles=["" for i in range(len(labels))],
+                    # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
+                    # plot_density=False,
+                    # plot_datapoints=False,
+                    fill_contours=True,
+                    show_titles=True,
+                    max_n_ticks=3,
+                    # title_fmt=".2E",
+                    labels=_labels
+                )
+
+                ## Make the ticks bigger
+                for ax in fig.get_axes():
+                    ax.tick_params(axis='both', labelsize=16)
+                    ax.title.set_fontsize("16")
+                ## Corner plots
+                non_mag = nssamples.T[0]
+                nonmag_meanfield = np.array([meanfield, non_mag])
+                fig = corner.corner(nonmag_meanfield.T,**CORNER_KWARGS)
+                # print('If I am right this is the mean field: {} '.format(np.median(nonmag_meanfield[1])))
+                # print('And so this is the max field: {} '.format(np.max(nonmag_meanfield[1])))
+                idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
+                # print('But I really want the position of the max likelihood: {} '.format(idx))
+                # print('Which gives: {} '.format(nonmag_meanfield[1][idx]))
+                # print('In the meantime if I take the coeffs for the max likelihood...')
+
+                be = nssamples[idx][0][:data['nbOfFields']+1]; #bs = np.arange(0, 12, 2)
+                maxlikesum = np.sum(be*data['bs'])
+                # print('And compute the associate Bf, I get: {}'.format(maxlikesum))
+                # print('But if we do what we used to do, then we get the coeffs from the median'.format(maxlikesum))
+                meds = []
+                for i in range(data['nbOfFields']+1):
+                    nnn = nssamples.T
+                    med = np.median(nnn[i])
+                    meds.append(med)
+                meds = np.array(meds)
+                newmeds = np.copy(meds)
+                newmeds[0] = 1 - np.sum(meds[1:])
+                medlikesum = np.sum(meds*data['bs'])
+                ## Now we want to remove the equal sign from titles
+                for i in range(len(fig.axes)):
+                    fig.axes[i].set_title(fig.axes[i].title.get_text().replace("=", ''))
+
+                # from IPython import embed
+                # embed()
+                ## What is the maximum of the 0 comp?
+                idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
+                # maxfirstcoeff = nssamples[idx][0]
+                maxfirstcoeff = np.mean(nssamples[idx50], axis=0)
+                # Extract the axes
+                axes = np.array(fig.axes).reshape((_ndim, _ndim))
+                for i in range(_ndim):
+                    for j in range(i):
+                        ax = axes[i, j]
+                        ax.axvline(maxpos[0], color='red')
+                        ax.axhline(maxfirstcoeff[0], color='red')
+
+                axes[0, 0].axvline(maxpos[0], color='red')
+                axes[1, 1].axvline(maxfirstcoeff[0], color='red')
+
+                plt.savefig(self.opath+'a0_b.pdf')
+                plt.close()
+                data['gen_files'].append('a0_b.pdf')
+
+
+
+        ############################
+        #### PLOT 3 - a0 -- <B> ####
+        ############################
+
+        if plottrig:
+
+            plt.close('all')
+
+            if self.fitFields:
+
+                params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': True,'figure.figsize' : (6.4, 4.8)}
+                plt.rcParams.update(params)
+
+                # xaxis = np.arange(0, 2*(nbOfFields+1),2)
+                xaxis = self.bs
+                width = np.median(np.diff(self.bs))*0.95
+                plt.bar(xaxis, self.coeffs, width=width, color='black')
+                plt.ylabel('Filling factor')
+                plt.xlabel('Field strength (kG)')
+                # Extract the axes
+                plt.tick_params(which='minor',direction='in',axis='both',bottom='on', top='on', left='on', right='on', length=5)
+                plt.tick_params(which='major',direction='in',axis='both',bottom='on', top='on', left='on', right='on', length=10)
+                plt.tight_layout()
+                plt.savefig(self.opath+'b_distrib.pdf')
+                plt.close()
+                data['gen_files'].append('b_distrib.pdf')
+
+
+        ##########################
+        #### PLOT 4 - samples ####
+        ##########################
+        ## I did not reconstruct the zero-magnetic field for the non-flattened samples.
+        ## So IF we fit the fields, we need to remove the first one.
+        if self.fitFields:
+            _ndim = data['ndim']-1
+            _labels = labels[1:]
+        else:
+            _ndim = data['ndim']
+            _labels = labels
+
+        figheightfac = len(_labels)/2 # Used to enlarge the figures
+        # ----
+        ## Without burning
+        if plottrig:
+            print("-> Generating samples plots")
+            fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+            if _ndim == 1:
+                i = 0
+                ax = axes
+                ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples_noflat_0))
+                ax.set_ylabel(_labels[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+                ax.set_xlabel("step number");
+            else:
+                for i in range(_ndim):
+                    ax = axes[i]
+                    ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                    ax.set_xlim(0, len(samples_noflat_0))
+                    ax.set_ylabel(_labels[i])
+                    ax.yaxis.set_label_coords(-0.1, 0.5)
+                axes[-1].set_xlabel("step number");
+            plt.savefig(self.opath+'samples.pdf')
+            # plt.show()
+            plt.close()
+            data['gen_files'].append('samples.pdf')
+
+        ## With burning
+        if plottrig:
+            fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+            if _ndim == 1:
+                i = 0
+                ax = axes
+                ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples_noflat[:]))
+                ax.set_ylabel(_labels[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+                ax.set_xlabel("step number");
+            else:
+                for i in range(_ndim):
+                    ax = axes[i]
+                    ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                    ax.set_xlim(0, len(samples_noflat[:]))
+                    ax.set_ylabel(_labels[i])
+                    ax.yaxis.set_label_coords(-0.1, 0.5)
+                axes[-1].set_xlabel("step number");
+            plt.savefig(self.opath+'samples_postburn.pdf')
+            # plt.show()
+            plt.close()
+            data['gen_files'].append('samples_postburn.pdf')
+
+        #### Here we save the values of the results to be stored
+        ## Grab values
+        mcmcs_tradi = []
+        emcmcs_tradi = []
+        mcmcs_maxdistrib = []
+        emcmcs_maxdistrib = []
+        mcmcs_maxproba = []
+        emcmcs_maxproba = []
+
+        def magnitude(x):
+            return int(round(np.log10(x), 0))
+        
+        for i in range(len(nssamples[0])):
+            ## Compute the median and error bars "traditionally"
+            mcmc = np.percentile(nssamples[:, i], [16, 50, 84])
+            q = np.diff(mcmc)
+            # 1 - get the maximum of the distributions
+            roundfac = -1*magnitude(np.mean(q))
+            if roundfac<0: roundfac=0
+            res = self.count_elements(np.round(nssamples[:, i], roundfac))
+            maxdistrib = self.maxdir(res)
+            #
+            # THISISATEST
+            # idxsort = np.argsort(log_prob_walkers)
+            # sortedsamples = nssamples.T[i][idxsort]
+            # max50 = sortedsamples[-50:]
+            max50 = nssamples.T[i][idx50]
+            maxproba = np.array([np.mean(max50)])
+            # Raise a warning if multiple maxima were found
+            if len(maxproba)>1:
+                if np.any(np.diff(maxproba)>0.001): ## We have different walkers yielding maxima in different places
+                    print('CAUTION: Possible multiple maxima detected')
+
+            ## Save the results
+            mcmcs_tradi.append(mcmc[1])
+            mcmcs_maxproba.append(maxproba[0])
+            mcmcs_maxdistrib.append(maxdistrib[0])
+            #
+            emcmcs_tradi.append(np.mean(q))
+            emcmcs_maxproba.append(np.mean(q)) #emaxproba) ## Default to percentiles
+            emcmcs_maxdistrib.append(np.mean(q)) ## Default to percentiles
+
+        ## With the results we can compute the missing magnetic coeff (for 0~kG)
+        ## Actually this is re-computing the missing coeff from the others... Is this a good idea?
+        if (self.fitFields & nbOfFields>1):
+            coeffs_tradi = mcmcs_tradi[:nbOfFields+1]
+            coeffs_tradi[0] = 1 - np.sum(self.coeffs[1:]) ## This apperrs to make a copy of the mcmcs array
+            ecoeffs_tradi = emcmcs_tradi[:nbOfFields+1]
+            #
+            coeffs_maxproba = mcmcs_maxproba[:nbOfFields+1]
+            ecoeffs_maxproba = emcmcs_maxproba[:nbOfFields+1]
+            #
+            coeffs_maxdistrib = mcmcs_maxdistrib[:nbOfFields+1]
+            ecoeffs_maxdistrib = emcmcs_maxdistrib[:nbOfFields+1]
+        else:
+            coeffs_tradi = np.zeros(len(self.bs))
+            coeffs_tradi[0] = 1
+            ecoeffs_tradi = np.zeros(len(self.bs))
+            #
+            coeffs_maxproba = np.zeros(len(self.bs))
+            coeffs_maxproba[0] = 1
+            ecoeffs_maxproba = np.zeros(len(self.bs))
+            #
+            coeffs_maxdistrib = np.zeros(len(self.bs))
+            coeffs_maxdistrib[0] = 1
+            ecoeffs_maxdistrib = np.zeros(len(self.bs))
+
+        if (self.fitFields and (nbOfFields>0)):
+            subssamples = nssamples.T[1:nbOfFields+1]
+            meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
+            mcmc_meanfield = np.percentile(meanfield_ssamples, [16, 50, 84])
+            q_meanfield = np.diff(mcmc_meanfield)
+            meanfield_tradi = mcmc_meanfield[1]
+            emeanfield_tradi = np.mean(q_meanfield)
+            #
+            # 1 - get the maximum of the distributions
+            res = self.count_elements(np.round(meanfield_ssamples, 3))
+            maxres = self.maxdir(res)
+            #
+            # 2 - get the maximum of likelihood for the distribution
+            # idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
+            # maxpos = meanfield[idx]
+            max50 = meanfield[idx50]
+            maxpos = np.array([np.mean(max50)])
+            emaxpos = (np.max(max50) - np.min(max50))/2
+            # from IPython import embed
+            # embed()
+            #
+            # Store the result in a variable
+            maxproba_meanfield = maxpos[0]
+            maxdistrib_meanfield = maxres[0]
+            #
+            emaxproba_meanfield = emeanfield_tradi #emaxpos
+            emaxdistrib_meanfield = emeanfield_tradi
+        else:
+            meanfield = 0
+            emeanfield = 0
+            maxproba_meanfield = 0
+            maxdistrib_meanfield = 0
+            emaxproba_meanfield = 0
+            emaxdistrib_meanfield = 0
+
+        ## And here we must choose which version of the parameters to use
+        mode = 'max' ## can be 'distrib' of 'tradi'
+        #
+        if 'max' in mode:
+            mcmcs = mcmcs_maxproba; emcmcs = emcmcs_maxproba
+            coeffs = coeffs_maxproba; ecoeffs = ecoeffs_maxproba
+            meanfield = maxproba_meanfield; emeanfield = emaxproba_meanfield
+        #
+        # Compute the average magnetic field
+        avfield = np.sum(self.bs * coeffs)
+        eavfield = np.sqrt(np.sum((self.bs*ecoeffs)**2))
+
+        resdict = self.get_PARAMS(mcmcs, emcmcs)
+
+        strcoeffs = [str(resdict['a'+str(i)]) for i in range(len(self.bs))]
+        strecoeffs = [str(resdict['e_a'+str(i)]) for i in range(len(self.bs))]
+
+        resveil = [resdict['r{}'.format(band)] for band in self.veilingBands]
+        eresveil = [resdict['e_r{}'.format(band)] for band in self.veilingBands]
+        resveil_tofit = [resdict['r{}'.format(band)] for band in self.fitBands]
+        resFillTeffs = [resdict['fillteff_0'], resdict['fillteff_1']]
+        eresFillTeffs = [resdict['e_fillteff_0'], resdict['e_fillteff_1']]
+        
+
+
+        fit = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, 
+                    self.nan_mask, self.nwvls, self.grid_n, 
+                    coeffs, resdict['teff'], resdict['logg'], resdict['mh'], resdict['alpha'],
+                    self.teffs, self.loggs, self.mhs, self.alphas, resdict['vb'],
+                    resdict['rv'], resdict['vsini'], resdict['vmac'], resveil_tofit, resdict['teff2'], resFillTeffs)
+        _  = self.lnlike(np.array(mcmcs))
+        minchi2 = np.sum(self._res)
+        coeffsnomag = coeffs*0
+        coeffsnomag[0] = 1
+        fitnomag = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, 
+                self.nan_mask, self.nwvls, self.grid_n, 
+                coeffsnomag, resdict['teff'], resdict['logg'], resdict['mh'], resdict['alpha'],
+                self.teffs, self.loggs, self.mhs, self.alphas, resdict['vb'],
+                resdict['rv'], resdict['vsini'], resdict['vmac'], resveil_tofit, resdict['teff2'], resFillTeffs)
+        _  = self.lnlike(np.array(mcmcs))
+        minchi2exp = np.sum(self._res)
+        #
+        hdu = fits.PrimaryHDU()
+        hdu.header['OBJECT'] = (self.star, 'object observed')
+        hdu.header['NORMFAC'] = (self.normFactor, 'object observed')
+        hdu1 = fits.ImageHDU(data=self.obs_wvl, name='WVL')
+        hdu2 = fits.ImageHDU(data=self.obs_flux, name='FLUX')
+        hdu3 = fits.ImageHDU(data=self.obs_flux_tofit, name='FLUXFIT')
+        hdu4 = fits.ImageHDU(data=self.obs_err, name='ERROR')
+        hdu5 = fits.ImageHDU(data=fit, name='FIT')
+        hdu6 = fits.ImageHDU(data=fitnomag, name='FITNOMAG')
+        hdu7 = fits.ImageHDU(data=self.IDXTOFIT, name='IDXTOFIT')
+        hdul = fits.HDUList([hdu, hdu1, hdu2, hdu3, hdu4, hdu5, hdu6, hdu7])
+        hdul.writeto(self.opath+'fit-data.fits', overwrite=True)
+
+        ## Save the normalization factor to file:
+        nbPointsFitted = len(self.obs_flux_tofit[self.IDXTOFIT]) 
+
+        p = len(mcmcs) ## number of parameters
+        new_normFactor = minchi2 * self.normFactor / (nbPointsFitted - p)
+        self.save_normFactor(new_normFactor)
+
+        strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
+        strecoeffs = [str(ecoeffs[i]) for i in range(len(ecoeffs))]
+        resFillTeffsString = [str(resFillTeffs[i]) for i in range(len(resFillTeffs))]
+        eresFillTeffsString = [str(eresFillTeffs[i]) for i in range(len(eresFillTeffs))]
+
+        f = open(self.opath+'factors.txt', 'w')
+        f.write(" ".join(strcoeffs) + " \n")
+        f.write(" ".join(strecoeffs) + " \n")
+        f.write("{} {} {} {} \n".format(resdict['teff'], resdict['logg'], resdict['mh'], resdict['alpha']))
+        f.write("{} {} {} {}\n".format(resdict['e_teff'], resdict['e_logg'], resdict['e_mh'], resdict['e_alpha']))
+        f.write("chi2 min: {:0.5f}\n".format(minchi2))
+        f.write("chi2 min no field: {:0.5f}\n".format(minchi2exp))
+        f.close()
+
+        ## See output.txt for a description of the lines
+        f = open(self.opath+'results_raw.txt', 'w')
+        f.write(" ".join(strcoeffs) + " \n")
+        f.write(" ".join(strecoeffs) + " \n")
+        f.write("{} {} {} {} \n".format(resdict['teff'], resdict['logg'], resdict['mh'], resdict['alpha']))
+        f.write("{} {} {} {}\n".format(resdict['e_teff'], resdict['e_logg'], resdict['e_mh'], resdict['e_alpha']))
+        f.write("Mean. field: {} {} \n".format(meanfield, emeanfield))
+        f.write("Av. field: {} {} \n".format(avfield, eavfield))
+        f.write("vb: {} {}\n".format(resdict['vb'], resdict['e_vb']))
+        f.write("GussRV: {} {}\n".format(self.guessed_rv, 0))
+        f.write("RV: {} {}\n".format(resdict['rv'], resdict['e_rv']))
+        f.write("vsini: {} {}\n".format(resdict['vsini'], resdict['e_vsini']))
+        f.write("vmac[{}]: {} {}\n".format(self.vmacMode, resdict['vmac'], resdict['e_vmac']))
+        f.write("chi2 min: {:0.5f}\n".format(minchi2))
+        f.write("chi2 min no field: {:0.5f}\n".format(minchi2exp))
+        f.write("Nb. of points: {}\n".format(nbPointsFitted))
+        f.write("normFactor: {}\n".format(self.normFactor))
+        f.write("veilingFac: {}\n".format(resveil).replace('[', '').replace(']', '').replace(',', ' '))
+        f.write("e_veilingFac: {}\n".format(eresveil).replace('[', '').replace(']', '').replace(',', ' '))
+        f.write("bolLum: {} {}\n".format(self.rL, self.drL))
+        f.write("absMk: {} {}\n".format(self.Mk, self.dMk))
+        f.write("dist: {} {}\n".format(self.dist, self.ddist))
+        f.write("Multi-teff model Teff2: {} \n".format(resdict['teff2']))
+        f.write("Multi-teff model errTeff2: {} \n".format(resdict['e_teff2']))
+        f.write("Multi-teff model fillTeffs: {} \n".format(" ".join(resFillTeffsString)))
+        f.write("Multi-teff model errfillTeffs: {} \n".format(" ".join(eresFillTeffsString)))
+        f.write("logCoeffs: {} \n".format(" ".format(self.logCoeffs)))
+        f.write("Adjusted errors: {}\n".format(self.errorsAdj))
+        f.write("Fit Derivative mode [T/F]: {}\n".format(self.fitDeriv))
+        f.write("Error type: {}\n".format(self.errType))
+        f.write("vinstru: {}\n".format(self.vinstru))
+        f.close()
+
+        print('ANALYSIS COMPLETE')
+
+        return 0
+
 
         # labels = ["C0", "C1", "C2", "C3", "Teff", "log(g)", "[M/H]", "[a/Fe]"]
         if len(self.bs)>1:
@@ -3210,186 +3841,3 @@ class SpectralAnalysis:
         print('ANALYSIS COMPLETE')
 
         return 0
-
-
-
-    #### Below I put functions that were drafted but are not doing any good in their current version
-    def gen_spec_onthefly(self, obs_wvl, obs_flux, obs_err, nan_mask, wvl_grid, grid_n, 
-             coeffs, T, L, M, A,
-             teffs, loggs, mhs, alphas, vb=None, rv=None,  
-             vsini=None, vmac=None, veilingFac=None, T2=None, fillTeffs=np.array([1, 0])):
-        '''Genertare interpolated, broadened and adjusted magnetic model.'''
-
-        if vb is None: vb = self.vb
-        if rv is None: rv = self.rv
-        if vsini is None: vsini = self.vsini
-        if vmac is None: vmac = self.vmac
-        if veilingFac is None: veilingFac = self.veilingFac
-        # from IPython import embed
-        # embed()
-        wvl_grid = self.grid_wvl
-        grid_handle = self.grid_handle
-        ## Here we build the small grid by loading the data from the handle
-        ## I assume that we always have a point below and above (for now)
-        # _teffs_local = teffs[0]
-        if T<teffs[0]: ## Allow extrapolation on the fly
-            tefflow = teffs[0]
-            teffup = teffs[1]
-        else:
-            tefflow = teffs[np.where(teffs<=T)[0][-1]]
-            teffup = teffs[np.where(teffs>T)[0][0]]
-        logglow = loggs[np.where(loggs<=L)[0][-1]]
-        loggup = loggs[np.where(loggs>L)[0][0]] 
-        mhlow = mhs[np.where(mhs<=M)[0][-1]]
-        mhup = mhs[np.where(mhs>M)[0][0]] 
-        if A<alphas[0]: ## Allow extrapolation on the fly
-            alphalow = alphas[0]
-            alphaup = alphas[1]
-        else:
-            alphalow = alphas[np.where(alphas<=A)[0][-1]]
-            alphaup = alphas[np.where(alphas>A)[0][0]]
-        
-        teffs_local = np.array([tefflow, teffup])
-        loggs_local = np.array([logglow, loggup])
-        mhs_local = np.array([mhlow, mhup])
-        alphas_local = np.array([alphalow, alphaup])
-
-        nwvls = np.array([wvl_grid])
-        # grid_n = []
-        # nwvls = []
-        minigrid = np.zeros((len(self.bs),2,2,2,2,1,len(wvl_grid)))
-        for _it, _teff in enumerate(teffs_local):
-            for _il, _logg in enumerate(loggs_local):
-                for _im, _mh in enumerate(mhs_local):
-                    for _ia, _alpha in enumerate(alphas_local):
-                        for _ib, _b in enumerate(self.bs*1000):
-                            # print(_teff, _logg, _mh, _alpha, _b)
-                            ## HARCODE phase rot and beta
-                            _phase = 0.; _rot = 90.; _beta = 0.
-                            _file = self.file_struc.format(_teff, _logg, _mh, _alpha, _b, _phase, _rot, _beta)
-                            # minigrid[_ib, _it, _il, _im, _ia, 0] = grid_handle[_file]['norm_flux']
-                            minigrid[_ib, _it, _il, _im, _ia, 0] = grid_handle[_file]['norm_flux']
-                            # _wvl, _spectrum = line_tools.make_contrained_regions(wvl_grid, _spec, self.regions)
-                            # nwvls.append(_wvl)
-                            # grid_n.append(_spectrum)
-        ## Determine the radial velocity shift
-        dopshift = tls.doppler(rv)
-        # _Bspec = np.zeros((self.d5, 1, self.d7))
-        _Bspec = np.zeros((self.d5, 1, len(wvl_grid)))
-        for i in range(self.d5):
-            _, s = wrap_function_fine_linear_4d(
-                                                T, L, M, A,
-                                                teffs_local, loggs_local, mhs_local, alphas_local,
-                                                minigrid[i], 
-                                                function=self.interpFunc)
-            _Bspec[i] = s
-
-            #############
-            # spectra = np.empty(s.shape)
-            # for jj in range(len(s)):
-            #     from irap_tools import effects
-            #     _spectra = effects.broaden_spectrum_2(nwvls[jj], s[jj], 
-            #                                 vinstru=0, 
-            #                                 vsini=vsini, epsilon=0.6, 
-            #                                 vmac=vmac, vmac_mode=self.vmacMode)
-            #     spectra[jj] = _spectra
-            # _Bspec[i] = spectra
-            #############
-
-        if self.logCoeffs:
-            tosum = [np.exp(coeffs[i]) * _Bspec[i] for i in range(len(coeffs))]
-        else:
-            tosum = [coeffs[i] * _Bspec[i] for i in range(len(coeffs))]
-        mergedspec = np.sum(tosum, axis=0) ## non-broad non-adj magnetic model
-
-        ## IF we have a second temperature
-        if T2 is not None:
-            _Bspec = np.zeros((self.d5, self.d6, self.d7))
-            for i in range(self.d5):
-                _, s = wrap_function_fine_linear_4d(
-                                                    T2, L, M, A,
-                                                    teffs, loggs, mhs, alphas,
-                                                    grid_n[i], 
-                                                    function=self.interpFunc)
-                _Bspec[i] = s
-            if self.logCoeffs:
-                tosum = [np.exp(coeffs[i]) * _Bspec[i] for i in range(len(coeffs))]
-            else:
-                tosum = [coeffs[i] * _Bspec[i] for i in range(len(coeffs))]
-            mergedspec2 = np.sum(tosum, axis=0) ## non-broad non-adj magnetic model
-            mergedspec = fillTeffs[0]*mergedspec + fillTeffs[1]*mergedspec2
-        ## Apply the doppler shift to the wavelength solution of the
-        ## SYNTHETIC spectrum. IF it is applied to the observation spectrum
-        ## This means that we will not have the synhtetic spectrum on the same
-        ## wavelength grid, and that will be a major problem.
-        nwvls_shift = nwvls * dopshift
-        ## The total broadening (gaussian) of the instrument is
-        totvb = np.sqrt(self.vinstru**2 + vb**2)
-
-        ## Here we determine the correct veiling
-        # myveiling = veiling_function(veilingFac, nwvls_shift)
-        # from IPython import embed
-        # embed()
-
-        args = [0, nwvls_shift[0], mergedspec[0], 
-                self.obs_wvl, self.obs_flux, self.obs_err_1d, 
-                nan_mask, totvb, vmac, vsini, 
-                0, 0, 0, '0', self.adjcont, 'line']
-        ## fit is the model after broadening and adjustment
-        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-                                                        macProf=self.vmacMode, 
-                                                        regions=self.regions_bins,
-                                                        regions_obs=self.regions_obs_bins)
-
-        # from IPython import embed
-        # embed()
-
-        ## One option would be to split the wavelength beforehand
-        ## according to the boundaries (the same way it's 
-        ## done in broaden_spectra_v2)
-        # ## Here we determine the correct veiling
-        myveiling = veiling_function(veilingFac, self.obs_wvl)
-        fit_v = (fit + myveiling) / (1 + myveiling)# veiled spectrum
-
-
-        ## For this function, must add the following block in load_grid
-
-        ## Needs to be adde to work with the gen_spec_onthefly function. Commenting it for now, it's not working great
-        # self.regions_bins = []
-        # if self.grid_wvl is not None: ## If we indeed have the value of the wavelength model
-        #     for _region in self.regions:
-        #         _reslow = abs(_region[0]-self.grid_wvl)
-        #         _posmin = np.where(_reslow==np.min(_reslow))[0]
-        #         if len(_posmin)==0:
-        #             raise Exception('Cannot create regions -> bounds are not within the range of the wavelength model')
-        #         _posmin = _posmin[0]
-        #         _resup = abs(_region[1]-self.grid_wvl)
-        #         _posmax = np.where(_resup==np.min(_resup))[0]
-        #         if len(_posmax)==0:
-        #             raise Exception('Cannot create regions -> bounds are not within the range of the wavelength model')
-        #         _posmax = _posmax[0]
-        #         self.regions_bins.append([_posmin, _posmax])
-
-        # And this one in create_regions
-
-        # self.obs_flux_1d = np.concatenate(self.obs_flux, -1)
-        # self.obs_wvl_1d = np.concatenate(self.obs_wvl, -1)
-        # self.obs_err_1d = np.concatenate(self.obs_err, -1)
-
-        # self.regions_obs_bins = []
-        # for _region in self.regions:
-        #     _reslow = abs(_region[0]-self.obs_wvl_1d)
-        #     _posmin = np.where(_reslow==np.min(_reslow))[0]
-        #     if len(_posmin)==0:
-        #         raise Exception('Cannot create regions -> bounds are not within the range of the wavelength model')
-        #     _posmin = _posmin[0]
-        #     _resup = abs(_region[1]-self.obs_wvl_1d)
-        #     _posmax = np.where(_resup==np.min(_resup))[0]
-        #     if len(_posmax)==0:
-        #         raise Exception('Cannot create regions -> bounds are not within the range of the wavelength model')
-        #     _posmax = _posmax[0]
-        #     self.regions_obs_bins.append([_posmin, _posmax])    
-
-
-        return fit_v
-    

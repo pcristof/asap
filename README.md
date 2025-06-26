@@ -47,6 +47,6 @@ This will create a `config.ini` file. Take a moment to look at this example file
 3. Modify the config.ini file so that the 'pathToGrid' and 'pathToData' point to the correct directories on your local computer. 
 
 ##### Run the analysis
-4. You can now run the anlysis by simply typing `asap.run_analysis dotau`. This will create a new direcotry 'output_dotau' containing the results of the analysis and a copy of the configuration file.
+4. You can now run the anlysis by simply typing `python3 -m asap dotau`. This will create a new direcotry 'output_dotau' containing the results of the analysis and a copy of the configuration file.
 
 ## UNDERSTANDING YOUR RESULT FILES
