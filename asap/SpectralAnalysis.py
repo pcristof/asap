@@ -1256,17 +1256,18 @@ class SpectralAnalysis:
         ## For distribution I try to simplify things and set the input to 3 cards (wvl, flx, err).
         ## I need to check whether I am in the old format or not.
         ## Check if I have exactly the old cards in that order:
-        if (hdu[1].name=='WVL') and (hdu[2].name=='TEMPLATE') and (hdu[3].name=='ERR') \
-            and (hdu[4].name=='ERR_PROPAG') and (hdu[5].name=='CONTINUUM'):
-            ## This is the old file format
-            if self.errType=="propag":
-                template_err = hdu[4].data
-            elif self.errType=='std':
-                template_err = hdu[3].data
-            elif self.errType=='sqrt':
-                # template_err = 1/np.sqrt(template)
-                snrc = 2000 ## SNR in the continuum (assumed high)
-                template_err = np.sqrt(template*snrc**2+100) / snrc**2
+        if (len(hdu)>4):
+            if  ((hdu[1].name=='WVL') and (hdu[2].name=='TEMPLATE') and (hdu[3].name=='ERR')) \
+                and (hdu[4].name=='ERR_PROPAG') and (hdu[5].name=='CONTINUUM'):
+                ## This is the old file format
+                if self.errType=="propag":
+                    template_err = hdu[4].data
+                elif self.errType=='std':
+                    template_err = hdu[3].data
+                elif self.errType=='sqrt':
+                    # template_err = 1/np.sqrt(template)
+                    snrc = 2000 ## SNR in the continuum (assumed high)
+                    template_err = np.sqrt(template*snrc**2+100) / snrc**2
             else:
                 template_err = 0.01*template
         else:
