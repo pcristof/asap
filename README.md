@@ -135,13 +135,13 @@ The results_raw.txt file contains results extracted from the posterior distribut
 18. placeholder for bolometric luminosity
 19. placeholder for absolute K band magnitude
 20. placeholder for distance
-21. Multi-Teff model second temperature [under development]
-22. Error on multi-teff second temperature [under development]
-23. Filling factors for multi-temperature [under development]
-24. Errors on filling factors for multi-temperature [under development]
-25. placeholder for log mode
-26. Adjusted errors [under development]
-27. Derivative mode [under development]
+21. placeholder (ignore)
+22. placeholder (ignore)
+23. placeholder (ignore)
+24. placeholder (ignore)
+25. placeholder (ignore)
+26. placeholder (ignore)
+27. placeholder (ignore)
 28. Error type mode (depricated, for advanced users and debugging)
 29. vinstru: instrumentation width provided by the user or defaulted.
 
