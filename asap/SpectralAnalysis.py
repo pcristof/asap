@@ -2928,7 +2928,7 @@ class SpectralAnalysis:
         nbofvals2 = len(idx50[0])
 
         labels = self.return_labels()
-        correctRV = True
+        correctRV = False
         if correctRV:
             #### Recenter the radial velocity
             ## We have to change the values of the RV for all the samples
@@ -3330,7 +3330,7 @@ class SpectralAnalysis:
 
         ## With the results we can compute the missing magnetic coeff (for 0~kG)
         ## Actually this is re-computing the missing coeff from the others... Is this a good idea?
-        if (self.fitFields & nbOfFields>1):
+        if (self.fitFields and (nbOfFields>1)):
             coeffs_tradi = mcmcs_tradi[:nbOfFields+1]
             coeffs_tradi[0] = 1 - np.sum(self.coeffs[1:]) ## This apperrs to make a copy of the mcmcs array
             ecoeffs_tradi = emcmcs_tradi[:nbOfFields+1]
@@ -3392,9 +3392,9 @@ class SpectralAnalysis:
         mode = 'max' ## can be 'distrib' of 'tradi'
         #
         if 'max' in mode:
-            mcmcs = mcmcs_maxproba; emcmcs = emcmcs_maxproba
-            coeffs = coeffs_maxproba; ecoeffs = ecoeffs_maxproba
-            meanfield = maxproba_meanfield; emeanfield = emaxproba_meanfield
+            mcmcs = np.array(mcmcs_maxproba); emcmcs = np.array(emcmcs_maxproba)
+            coeffs = np.array(coeffs_maxproba); ecoeffs = np.array(ecoeffs_maxproba)
+            meanfield = np.array(maxproba_meanfield); emeanfield = np.array(emaxproba_meanfield)
         #
         # Compute the average magnetic field
         avfield = np.sum(self.bs * coeffs)
@@ -3412,13 +3412,19 @@ class SpectralAnalysis:
         eresFillTeffs = [resdict['e_fillteff_0'], resdict['e_fillteff_1']]
         
 
-
+        ## Here coeffs include the 0kG component
         fit = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, 
                     self.nan_mask, self.nwvls, self.grid_n, 
                     coeffs, resdict['teff'], resdict['logg'], resdict['mh'], resdict['alpha'],
                     self.teffs, self.loggs, self.mhs, self.alphas, resdict['vb'],
                     resdict['rv'], resdict['vsini'], resdict['vmac'], resveil_tofit, resdict['teff2'], resFillTeffs)
-        _  = self.lnlike(np.array(mcmcs))
+        ## Same, mcmc contains the 0kG component we do not want to feed to lnlike.
+        ## But if there are no magnetic fields, mcmcs should contain no filling factor
+        if nbOfFields>0:
+            mcmcsForLnLike = mcmcs[1:]
+        else:
+            mcmcsForLnLike = mcmcs
+        _  = self.lnlike(mcmcsForLnLike)
         minchi2 = np.sum(self._res)
         coeffsnomag = coeffs*0
         coeffsnomag[0] = 1
@@ -3427,7 +3433,12 @@ class SpectralAnalysis:
                 coeffsnomag, resdict['teff'], resdict['logg'], resdict['mh'], resdict['alpha'],
                 self.teffs, self.loggs, self.mhs, self.alphas, resdict['vb'],
                 resdict['rv'], resdict['vsini'], resdict['vmac'], resveil_tofit, resdict['teff2'], resFillTeffs)
-        _  = self.lnlike(np.array(mcmcs))
+        ## Here, we want the same as the results of the mcmcs, but the magnetic components should be set to zero.
+        if nbOfFields>0:
+            mcmcsForLnLike_0kG = np.copy(mcmcsForLnLike)
+            mcmcsForLnLike_0kG[0] = 1
+            mcmcsForLnLike_0kG[1:nbOfFields] = 0
+        _  = self.lnlike(mcmcsForLnLike_0kG)
         minchi2exp = np.sum(self._res)
         #
         hdu = fits.PrimaryHDU()
@@ -3637,7 +3648,7 @@ class SpectralAnalysis:
         # T = 3311; L = 5.11; M = -0.37; A = 0.16
         ## We compute here the results obtained assuming no magnetic fields
         ## at all.
-        ## Here we also use the last values obtained with self._T etc. So that is probably random crap.
+        ## Here we also use the last values obtained with self._T etc.
         # if len(self.bs)==1:
         if not self.fitFields:
             mcmcsexp = np.array([])
