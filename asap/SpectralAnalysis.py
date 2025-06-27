@@ -2226,10 +2226,11 @@ class SpectralAnalysis:
                 if _starname in stars_data.keys(): ## We search file data
                         self.normFactor = stars_data[_starname]
                 else: ## Don't have data, we guess the value
-                    _ = self.lnlike()
-                    nbPointsFitted = len(self.obs_flux_tofit[self.IDXTOFIT])
-                    minchi2 = np.sum(self._res)
-                    self.normFactor = minchi2 / nbPointsFitted
+                    # _ = self.lnlike()
+                    # nbPointsFitted = len(self.obs_flux_tofit[self.IDXTOFIT])
+                    # minchi2 = np.sum(self._res)
+                    # self.normFactor = minchi2 / nbPointsFitted
+                    self.normFactor = 1.
             else: ## User does not want to renorm
                 self.normFactor = 1
         else: ## User provided a specific value
