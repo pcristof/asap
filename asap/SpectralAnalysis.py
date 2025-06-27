@@ -3192,97 +3192,6 @@ class SpectralAnalysis:
                 data['gen_files'].append('a0_b.pdf')
 
 
-
-        ############################
-        #### PLOT 3 - a0 -- <B> ####
-        ############################
-
-        if plottrig:
-
-            plt.close('all')
-
-            if self.fitFields:
-
-                params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': True,'figure.figsize' : (6.4, 4.8)}
-                plt.rcParams.update(params)
-
-                xaxis = self.bs
-                width = np.median(np.diff(self.bs))*0.95
-                plt.bar(xaxis, self.coeffs, width=width, color='black')
-                plt.ylabel('Filling factor')
-                plt.xlabel('Field strength (kG)')
-                # Extract the axes
-                plt.tick_params(which='minor',direction='in',axis='both',bottom='on', top='on', left='on', right='on', length=5)
-                plt.tick_params(which='major',direction='in',axis='both',bottom='on', top='on', left='on', right='on', length=10)
-                plt.tight_layout()
-                plt.savefig(self.opath+'b_distrib.pdf')
-                plt.close()
-                data['gen_files'].append('b_distrib.pdf')
-
-
-        ##########################
-        #### PLOT 4 - samples ####
-        ##########################
-        ## I did not reconstruct the zero-magnetic field for the non-flattened samples.
-        ## So IF we fit the fields, we need to remove the first one.
-        if self.fitFields:
-            _ndim = data['ndim']-1
-            _labels = labels[1:]
-        else:
-            _ndim = data['ndim']
-            _labels = labels
-
-        figheightfac = len(_labels)/2 # Used to enlarge the figures
-        # ----
-        ## Without burning
-        if plottrig:
-            print("-> Generating samples plots")
-            fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-            if _ndim == 1:
-                i = 0
-                ax = axes
-                ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
-                ax.set_xlim(0, len(samples_noflat_0))
-                ax.set_ylabel(_labels[i])
-                ax.yaxis.set_label_coords(-0.1, 0.5)
-                ax.set_xlabel("step number");
-            else:
-                for i in range(_ndim):
-                    ax = axes[i]
-                    ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat_0))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                axes[-1].set_xlabel("step number");
-            plt.savefig(self.opath+'samples.pdf')
-            # plt.show()
-            plt.close()
-            data['gen_files'].append('samples.pdf')
-
-        ## With burning
-        if plottrig:
-            fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-            if _ndim == 1:
-                i = 0
-                ax = axes
-                ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
-                ax.set_xlim(0, len(samples_noflat[:]))
-                ax.set_ylabel(_labels[i])
-                ax.yaxis.set_label_coords(-0.1, 0.5)
-                ax.set_xlabel("step number");
-            else:
-                for i in range(_ndim):
-                    ax = axes[i]
-                    ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat[:]))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                axes[-1].set_xlabel("step number");
-            plt.savefig(self.opath+'samples_postburn.pdf')
-            # plt.show()
-            plt.close()
-            data['gen_files'].append('samples_postburn.pdf')
-
         #### Here we save the values of the results to be stored
         ## Grab values
         mcmcs_tradi = []
@@ -3295,6 +3204,8 @@ class SpectralAnalysis:
         def magnitude(x):
             return int(round(np.log10(x), 0))
         
+        max50 = nssamples[idx50]
+        max = np.mean(max50, axis=0)
         for i in range(len(nssamples[0])):
             ## Compute the median and error bars "traditionally"
             mcmc = np.percentile(nssamples[:, i], [16, 50, 84])
@@ -3309,8 +3220,9 @@ class SpectralAnalysis:
             # idxsort = np.argsort(log_prob_walkers)
             # sortedsamples = nssamples.T[i][idxsort]
             # max50 = sortedsamples[-50:]
-            max50 = nssamples.T[i][idx50]
-            maxproba = np.array([np.mean(max50)])
+            # max50 = nssamples.T[i][idx50]
+            # maxproba = np.array([np.mean(max50)])
+            maxproba=np.array([max[i]])
             # Raise a warning if multiple maxima were found
             if len(maxproba)>1:
                 if np.any(np.diff(maxproba)>0.001): ## We have different walkers yielding maxima in different places
@@ -3397,6 +3309,96 @@ class SpectralAnalysis:
         # Compute the average magnetic field
         avfield = np.sum(self.bs * coeffs)
         eavfield = np.sqrt(np.sum((self.bs*ecoeffs)**2))
+
+        ############################
+        #### PLOT 3 - a0 -- <B> ####
+        ############################
+
+        if plottrig:
+
+            plt.close('all')
+
+            if self.fitFields:
+
+                params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': True,'figure.figsize' : (6.4, 4.8)}
+                plt.rcParams.update(params)
+
+                xaxis = self.bs
+                width = np.median(np.diff(self.bs))*0.95
+                plt.bar(xaxis, coeffs, width=width, color='black')
+                plt.ylabel('Filling factor')
+                plt.xlabel('Field strength (kG)')
+                # Extract the axes
+                plt.tick_params(which='minor',direction='in',axis='both',bottom='on', top='on', left='on', right='on', length=5)
+                plt.tick_params(which='major',direction='in',axis='both',bottom='on', top='on', left='on', right='on', length=10)
+                plt.tight_layout()
+                plt.savefig(self.opath+'b_distrib.pdf')
+                plt.close()
+                data['gen_files'].append('b_distrib.pdf')
+
+
+        ##########################
+        #### PLOT 4 - samples ####
+        ##########################
+        ## I did not reconstruct the zero-magnetic field for the non-flattened samples.
+        ## So IF we fit the fields, we need to remove the first one.
+        if self.fitFields:
+            _ndim = data['ndim']-1
+            _labels = labels[1:]
+        else:
+            _ndim = data['ndim']
+            _labels = labels
+
+        figheightfac = len(_labels)/2 # Used to enlarge the figures
+        # ----
+        ## Without burning
+        if plottrig:
+            print("-> Generating samples plots")
+            fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+            if _ndim == 1:
+                i = 0
+                ax = axes
+                ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples_noflat_0))
+                ax.set_ylabel(_labels[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+                ax.set_xlabel("step number");
+            else:
+                for i in range(_ndim):
+                    ax = axes[i]
+                    ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                    ax.set_xlim(0, len(samples_noflat_0))
+                    ax.set_ylabel(_labels[i])
+                    ax.yaxis.set_label_coords(-0.1, 0.5)
+                axes[-1].set_xlabel("step number");
+            plt.savefig(self.opath+'samples.pdf')
+            # plt.show()
+            plt.close()
+            data['gen_files'].append('samples.pdf')
+
+        ## With burning
+        if plottrig:
+            fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+            if _ndim == 1:
+                i = 0
+                ax = axes
+                ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                ax.set_xlim(0, len(samples_noflat[:]))
+                ax.set_ylabel(_labels[i])
+                ax.yaxis.set_label_coords(-0.1, 0.5)
+                ax.set_xlabel("step number");
+            else:
+                for i in range(_ndim):
+                    ax = axes[i]
+                    ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                    ax.set_xlim(0, len(samples_noflat[:]))
+                    ax.set_ylabel(_labels[i])
+                    ax.yaxis.set_label_coords(-0.1, 0.5)
+                axes[-1].set_xlabel("step number");
+            plt.savefig(self.opath+'samples_postburn.pdf')
+            # plt.show()
+            plt.close()
+            data['gen_files'].append('samples_postburn.pdf')
 
         resdict = self.get_PARAMS(mcmcs, emcmcs)
 
@@ -3495,15 +3497,15 @@ class SpectralAnalysis:
         f.write("veilingFac: {}\n".format(resveil).replace('[', '').replace(']', '').replace(',', ' '))
         f.write("e_veilingFac: {}\n".format(eresveil).replace('[', '').replace(']', '').replace(',', ' '))
         f.write("bolLum: {} {}\n".format(self.rL, self.drL))
-        f.write("absMk: {} {}\n".format(self.Mk, self.dMk))
-        f.write("dist: {} {}\n".format(self.dist, self.ddist))
-        f.write("------: {} \n".format(resdict['teff2']))
-        f.write("------: {} \n".format(resdict['e_teff2']))
-        f.write("------: {} \n".format(" ".join(resFillTeffsString)))
-        f.write("------: {} \n".format(" ".join(eresFillTeffsString)))
-        f.write("------: {} \n".format(" ".format(self.logCoeffs)))
-        f.write("------: {}\n".format(self.errorsAdj))
-        f.write("------: {}\n".format(self.fitDeriv))
+        f.write("absMk: {} {}\n".format(" "))#.format(self.Mk, self.dMk))
+        f.write("dist: {} {}\n".format(" "))#.format(self.dist, self.ddist))
+        f.write("------: {} \n".format(" "))#.format(resdict['teff2']))
+        f.write("------: {} \n".format(" "))#.format(resdict['e_teff2']))
+        f.write("------: {} \n".format(" "))#.format(" ".join(resFillTeffsString)))
+        f.write("------: {} \n".format(" "))#.format(" ".join(eresFillTeffsString)))
+        f.write("------: {} \n".format(" "))#.format(" ".format(self.logCoeffs)))
+        f.write("------: {}\n".format(" "))#.format(self.errorsAdj))
+        f.write("------: {}\n".format(" "))#.format(self.fitDeriv))
         f.write("Error type: {}\n".format(self.errType))
         f.write("vinstru: {}\n".format(self.vinstru))
         f.close()
