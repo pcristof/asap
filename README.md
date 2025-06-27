@@ -3,7 +3,7 @@
 
 If you use this package, please cite [Cristofari et al. (2023)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.522.1342C/abstract)
 
-Some versions of this package have been used in:
+Some versions of this package were also used in:
 - [Cristofari et al. (2022)](https://ui.adsabs.harvard.edu/abs/2022MNRAS.511.1893C/abstract)
 - [Cristofari et al. (2022b)](https://ui.adsabs.harvard.edu/abs/2022MNRAS.516.3802C/abstract)
 - [Cristofari et al. (2023)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.522.1342C/abstract)
@@ -29,7 +29,7 @@ Some versions of this package have been used in:
 ## QUICK START GUIDE
 
 ### Notes:
-I put a lot of effort in making this program easy to run, which is no easy task given the quantity of options we need to implement. The core of the program is object-oriented, buddle into the package, and runs with a script accessible with the command `asap.run_analysis.py`. Once the package is properly installed and the user activated the proper conda environment, the user can run the program from anywhere on their machine. The analysis options are controlled in a single file `config.ini` that needs to be placed in the working directory of the anlysis to run.
+I put a lot of effort in making this program easy to run, which is no easy task given the quantity of options we need to implement. The core of the program is object-oriented, bundled into the package, and runs with a script accessible with the command `python -m asap`. Once the package is properly installed and the user activated the proper conda environment, the user can run the program from anywhere on their machine. The analysis options are controlled with a single `config.ini` file, which needs to be placed in the working directory of the anlysis to run.
 
 I add a working example to this guide to present the main parts of the program.
 
@@ -129,8 +129,8 @@ The results_raw.txt file contains results extracted from the posterior distribut
 12. min. chi2 obtained **after** renormalization of the error bars (see line 15).
 13. same as line 12 but setting taking a non-magnetic spectrum for the same atmospheric and broadening parameters.
 14. Nb. of points used to perform the fit
-15. Normalization factor used to rescale the error bars. This factor was computed at the end of the previous run.
-16. veiling factors **
+15. Normalization factor used to rescale the error bars. This factor was computed at the end of the previous run**.
+16. veiling factors ***
 17. errors on veiling
 18. placeholder for bolometric luminosity
 19. placeholder for absolute K band magnitude
@@ -145,40 +145,25 @@ The results_raw.txt file contains results extracted from the posterior distribut
 28. Error type mode (depricated, for advanced users and debugging)
 29. vinstru: instrumentation width provided by the user or defaulted.
 
-*****Notes on Veiling:*** Implementation of veiling with multiple band is not trivial. Veiling currently implemented by assuming constant veiling factors throughout bands. Bands are defined by a central wavelength and a FWHM (currently hardcoded, sorry). ASAP currently handles bands I, Y, J, H, K and L. transition between bands are currently accounted for by interpolating the veiling factors between the edges of consecutive bands. To handle edges, the current implementation allows to provide "nan" to the bands at the edges of the considered domain. If nan is provided, the code will impose the value of the band at the edge to be that of the closest band. This allowed to fix issues with, e.g., very few lines selected in a band leading to bad veiling estimates. 
+*****Notes on normFactor:*** Remember to run the program *at least* twice to obtain use renormalized error bars.
 
+******Notes on Veiling:*** Implementation of veiling with multiple band is not trivial. Veiling currently implemented by assuming constant veiling factors throughout bands. Bands are defined by a central wavelength and a FWHM (currently hardcoded, sorry). ASAP currently handles bands I, Y, J, H, K and L. transition between bands are currently accounted for by interpolating the veiling factors between the edges of consecutive bands. To handle edges, the current implementation allows to provide "nan" to the bands at the edges of the considered domain. If nan is provided, the code will impose the value of the band at the edge to be that of the closest band. This allowed to fix issues with, e.g., very few lines selected in a band leading to bad veiling estimates.
 
+### Understanding my input data and format
 
-Let's us look at the file content:
+#### Synthetic spectra
+ASAP reads grids of ZeeTurbo (or other!) spectra in a very specific format. The choice of hdf5 format was motivated by 1- the easy link to a unique wavelength solution file reducing disk space usage and 2- the highly efficient IO that h5py offers. The working example comes with a very minimal grid for storage reasons.
+ 
+#### Observation data
+ASAP reads spectra store in a FITS file. Note that the program was designed to handle spectra with multiple orders.
+Your input FITS files should contain a HDUList with 3 *ordered* cards **after** the PrimaryHDU, containing the 2D wavelength, normalized fluxes, and errors. Currently, no other format is adequately supported (see example below).
 
 ```
-0.007175764964202213 0.9511061350889982 0.034384725977859104 0.004954134425280143 0.0023792395436603264 
-0.017225142385408922 0.047919150408181344 0.03858086061585908 0.013692431958565295 0.006302485949215015 
-3576.7502047095745 3.7333549695920643 0.0 0.0 
-48.02648678245737 0.0656383655161128 0 0
-Mean. field: 2.0885098969903964 0.10896968616131741 
-Av. field: 2.0885098969903964 0.20565078849334467 
-vb: 0 0
-GussRV: -15.669999999996367 0
-RV: 0.7354365808685448 0.15161764579408454
-vsini: 11.238915820214991 0.31833160197544785
-vmac[rt]: 0.0 0
-chi2 min: 876.67376
-chi2 min no field: 874.84926
-Nb. of points: 886
-normFactor: 0.19838492747650907
-veilingFac: nan  4.403224134054655  nan
-e_veilingFac: 0  0.13042538290011052  0
-bolLum: nan nan
-absMk: nan nan
-dist: nan nan
-Multi-teff model Teff2: None 
-Multi-teff model errTeff2: 0 
-Multi-teff model fillTeffs: 1 0 
-Multi-teff model errfillTeffs: 0 0 
-logCoeffs:   
-Adjusted errors: False
-Fit Derivative mode [T/F]: False
-Error type: propag
-vinstru: 4.3
+>> hdu.info()
+Filename: dotau_templates.fits
+No.    Name      Ver    Type      Cards   Dimensions   Format
+  0  PRIMARY       1 PrimaryHDU       4   ()      
+  1  WVL           1 ImageHDU         8   (4088, 49)   float64   
+  2  TEMPLATE      1 ImageHDU         8   (4088, 49)   float64   
+  3  ERR           1 ImageHDU         8   (4088, 49)   float64   
 ```
