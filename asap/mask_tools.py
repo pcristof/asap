@@ -129,7 +129,6 @@ def read_vald_lines(filename=None):
 
 @jit(nopython=True, cache=True)
 def gen_mask_(ref_wvls, wvls, depth):
-    '''Function extracted from... donati 19??'''
     M = np.zeros(len(ref_wvls))
     for i in range(len(ref_wvls)):
         sum_vals = 0
@@ -145,7 +144,6 @@ def gen_mask_(ref_wvls, wvls, depth):
 
 @jit(nopython=True, cache=True)
 def gen_mask(ref_wvls, wvls, depth, dspeed=1):
-    '''Function extracted from... donati 19??'''
     M = np.zeros(len(ref_wvls))
     for i in range(len(ref_wvls)):
         sum_vals = 0
