@@ -1242,24 +1242,36 @@ class SpectralAnalysis:
         Input:
         - filename      :   [string] absolute path of the file to load.'''
 
+        ## Try to resolve the filename
         if not os.path.isfile(filename):
             filename = filename.replace('gj', 'gl')
             self.star = self.star.replace('gj', 'gl')
         if not os.path.isfile(filename):
             filename = filename.replace('gl', 'gj')
             self.star = self.star.replace('gl', 'gj')
+        ## Open fits file
         hdu = fits.open(filename)
         wvl = hdu[1].data; template = hdu[2].data; 
-        if self.errType=="propag":
-            template_err = hdu[4].data
-        elif self.errType=='std':
-            template_err = hdu[3].data
-        elif self.errType=='sqrt':
-            # template_err = 1/np.sqrt(template)
-            snrc = 2000 ## SNR in the continuum (assumed high)
-            template_err = np.sqrt(template*snrc**2+100) / snrc**2
+        ## Resolving the type of file. Originally, I had big fits with more cards than needed.
+        ## For distribution I try to simplify things and set the input to 3 cards (wvl, flx, err).
+        ## I need to check whether I am in the old format or not.
+        ## Check if I have exactly the old cards in that order:
+        if (hdu[1].name=='WVL') and (hdu[2].name=='TEMPLATE') and (hdu[3].name=='ERR') \
+            and (hdu[4].name=='ERR_PROPAG') and (hdu[5].name=='CONTINUUM'):
+            ## This is the old file format
+            if self.errType=="propag":
+                template_err = hdu[4].data
+            elif self.errType=='std':
+                template_err = hdu[3].data
+            elif self.errType=='sqrt':
+                # template_err = 1/np.sqrt(template)
+                snrc = 2000 ## SNR in the continuum (assumed high)
+                template_err = np.sqrt(template*snrc**2+100) / snrc**2
+            else:
+                template_err = 0.01*template
         else:
-            template_err = 0.01*template
+            ## New simplified file format:
+            template_err = hdu[3].data
         hdu.close()
         # dop = tls.doppler(110) ## RV shift
         if self.guessRV:
@@ -3328,30 +3340,30 @@ class SpectralAnalysis:
             emcmcs_maxproba.append(np.mean(q)) #emaxproba) ## Default to percentiles
             emcmcs_maxdistrib.append(np.mean(q)) ## Default to percentiles
 
-        ## With the results we can compute the missing magnetic coeff (for 0~kG)
-        ## Actually this is re-computing the missing coeff from the others... Is this a good idea?
-        if (self.fitFields and (nbOfFields>1)):
-            coeffs_tradi = mcmcs_tradi[:nbOfFields+1]
-            coeffs_tradi[0] = 1 - np.sum(self.coeffs[1:]) ## This apperrs to make a copy of the mcmcs array
-            ecoeffs_tradi = emcmcs_tradi[:nbOfFields+1]
-            #
-            coeffs_maxproba = mcmcs_maxproba[:nbOfFields+1]
-            ecoeffs_maxproba = emcmcs_maxproba[:nbOfFields+1]
-            #
-            coeffs_maxdistrib = mcmcs_maxdistrib[:nbOfFields+1]
-            ecoeffs_maxdistrib = emcmcs_maxdistrib[:nbOfFields+1]
-        else:
-            coeffs_tradi = np.zeros(len(self.bs))
-            coeffs_tradi[0] = 1
-            ecoeffs_tradi = np.zeros(len(self.bs))
-            #
-            coeffs_maxproba = np.zeros(len(self.bs))
-            coeffs_maxproba[0] = 1
-            ecoeffs_maxproba = np.zeros(len(self.bs))
-            #
-            coeffs_maxdistrib = np.zeros(len(self.bs))
-            coeffs_maxdistrib[0] = 1
-            ecoeffs_maxdistrib = np.zeros(len(self.bs))
+        # ## With the results we can compute the missing magnetic coeff (for 0~kG)
+        # ## Actually this is re-computing the missing coeff from the others... Is this a good idea?
+        # if (self.fitFields and (nbOfFields>1)):
+        #     coeffs_tradi = mcmcs_tradi[:nbOfFields+1]
+        #     coeffs_tradi[0] = 1 - np.sum(self.coeffs[1:]) ## This apperrs to make a copy of the mcmcs array
+        #     ecoeffs_tradi = emcmcs_tradi[:nbOfFields+1]
+        #     #
+        #     coeffs_maxproba = mcmcs_maxproba[:nbOfFields+1]
+        #     ecoeffs_maxproba = emcmcs_maxproba[:nbOfFields+1]
+        #     #
+        #     coeffs_maxdistrib = mcmcs_maxdistrib[:nbOfFields+1]
+        #     ecoeffs_maxdistrib = emcmcs_maxdistrib[:nbOfFields+1]
+        # else:
+        #     coeffs_tradi = np.zeros(len(self.bs))
+        #     coeffs_tradi[0] = 1
+        #     ecoeffs_tradi = np.zeros(len(self.bs))
+        #     #
+        #     coeffs_maxproba = np.zeros(len(self.bs))
+        #     coeffs_maxproba[0] = 1
+        #     ecoeffs_maxproba = np.zeros(len(self.bs))
+        #     #
+        #     coeffs_maxdistrib = np.zeros(len(self.bs))
+        #     coeffs_maxdistrib[0] = 1
+        #     ecoeffs_maxdistrib = np.zeros(len(self.bs))
 
         if (self.fitFields and (nbOfFields>0)):
             subssamples = nssamples.T[1:nbOfFields+1]
@@ -3393,7 +3405,7 @@ class SpectralAnalysis:
         #
         if 'max' in mode:
             mcmcs = np.array(mcmcs_maxproba); emcmcs = np.array(emcmcs_maxproba)
-            coeffs = np.array(coeffs_maxproba); ecoeffs = np.array(ecoeffs_maxproba)
+            coeffs = np.array(mcmcs[0:nbOfFields+1]); ecoeffs = np.array(emcmcs[0:nbOfFields+1])
             meanfield = np.array(maxproba_meanfield); emeanfield = np.array(emaxproba_meanfield)
         #
         # Compute the average magnetic field
