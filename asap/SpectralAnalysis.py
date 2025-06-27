@@ -2921,11 +2921,7 @@ class SpectralAnalysis:
         log_prob_walkers_noflat = log_prob_walkers_noflat_0[data['burning']:]
 
         #### Compute the number of fields in the fit
-        nbOfFields = len(self.bs)-1
-        if not self.fitFields:
-            nbOfFields = 1
-        data['nbOfFields'] = nbOfFields
-        data['nbOfFillingFac'] = nbOfFields+1
+        nbOfFields = len(self.bs) ## This is the number of fields in our model NOT WHAT WE FIT 
         
         #### Flatten the samples
         ishape = np.shape(samples_noflat)
@@ -2960,14 +2956,15 @@ class SpectralAnalysis:
 
         ## Compute the mean field from the samples
         if self.fitFields:
-            subssamples = ssamples.T[:data['nbOfFields']]
+            ## If we are fitting fields, we are fitting nbOfFields-1 filling factors
+            subssamples = ssamples.T[:nbOfFields-1]
             meanfield = np.sum(subssamples.T * data['bs'][1:], axis=1) ## only from magnetic coefficients
-
+        
         ## Compute the first coeff and put it in place
         if self.fitFields:
-            subssamples = (ssamples.T)[:data['nbOfFields']]
+            subssamples = (ssamples.T)[:nbOfFields-1]
             firstcoeff = 1 - np.sum(subssamples, axis=0)
-            #
+            # Append the first coeff
             nssamples = np.empty((len(ssamples), len(ssamples[0])+1)).T
             nssamples[0] = firstcoeff
             for i in range(len(ssamples[0])):
@@ -2983,6 +2980,7 @@ class SpectralAnalysis:
 
         data['gen_files'] = []
 
+        ## From this point forward, nssamples contains the 0kG component (which we did not fit directly)
 
         ###################################
         #### PLOT 1 - FULL CORNER PLOT ####
@@ -3168,12 +3166,12 @@ class SpectralAnalysis:
                 # print('Which gives: {} '.format(nonmag_meanfield[1][idx]))
                 # print('In the meantime if I take the coeffs for the max likelihood...')
 
-                be = nssamples[idx][0][:data['nbOfFields']+1]; #bs = np.arange(0, 12, 2)
+                be = nssamples[idx][0][:nbOfFields];
                 maxlikesum = np.sum(be*data['bs'])
                 # print('And compute the associate Bf, I get: {}'.format(maxlikesum))
                 # print('But if we do what we used to do, then we get the coeffs from the median'.format(maxlikesum))
                 meds = []
-                for i in range(data['nbOfFields']+1):
+                for i in range(nbOfFields):
                     nnn = nssamples.T
                     med = np.median(nnn[i])
                     meds.append(med)
@@ -3221,7 +3219,6 @@ class SpectralAnalysis:
                 params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': True,'figure.figsize' : (6.4, 4.8)}
                 plt.rcParams.update(params)
 
-                # xaxis = np.arange(0, 2*(nbOfFields+1),2)
                 xaxis = self.bs
                 width = np.median(np.diff(self.bs))*0.95
                 plt.bar(xaxis, self.coeffs, width=width, color='black')
@@ -3366,8 +3363,8 @@ class SpectralAnalysis:
         #     coeffs_maxdistrib[0] = 1
         #     ecoeffs_maxdistrib = np.zeros(len(self.bs))
 
-        if (self.fitFields and (nbOfFields>0)):
-            subssamples = nssamples.T[1:nbOfFields+1]
+        if (self.fitFields and (nbOfFields>1)):
+            subssamples = nssamples.T[1:nbOfFields] ## Without the 0kG component
             meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
             mcmc_meanfield = np.percentile(meanfield_ssamples, [16, 50, 84])
             q_meanfield = np.diff(mcmc_meanfield)
@@ -3401,14 +3398,15 @@ class SpectralAnalysis:
             emaxproba_meanfield = 0
             emaxdistrib_meanfield = 0
 
-        ## And here we must choose which version of the parameters to use
-        mode = 'max' ## can be 'distrib' of 'tradi'
-        #
-        if 'max' in mode:
-            mcmcs = np.array(mcmcs_maxproba); emcmcs = np.array(emcmcs_maxproba)
-            coeffs = np.array(mcmcs[0:nbOfFields+1]); ecoeffs = np.array(emcmcs[0:nbOfFields+1])
-            meanfield = np.array(maxproba_meanfield); emeanfield = np.array(emaxproba_meanfield)
-        #
+        mcmcs = np.array(mcmcs_maxproba); emcmcs = np.array(emcmcs_maxproba)
+        if self.fitFields:
+            coeffs = np.array(mcmcs[0:nbOfFields]); ecoeffs = np.array(emcmcs[0:nbOfFields])
+        else: ## No magnetic field fitted
+            coeffs = np.zeros(nbOfFields)
+            coeffs[0] = 1.
+            ecoeffs = np.zeros(nbOfFields) 
+        ##
+        meanfield = np.array(maxproba_meanfield); emeanfield = np.array(emaxproba_meanfield)
         # Compute the average magnetic field
         avfield = np.sum(self.bs * coeffs)
         eavfield = np.sqrt(np.sum((self.bs*ecoeffs)**2))
@@ -3432,9 +3430,9 @@ class SpectralAnalysis:
                     self.teffs, self.loggs, self.mhs, self.alphas, resdict['vb'],
                     resdict['rv'], resdict['vsini'], resdict['vmac'], resveil_tofit, resdict['teff2'], resFillTeffs)
         ## Same, mcmc contains the 0kG component we do not want to feed to lnlike.
-        ## But if there are no magnetic fields, mcmcs should contain no filling factor
-        if nbOfFields>0:
-            mcmcsForLnLike = mcmcs[1:]
+        ## But if there are no magnetic fields, mcmcs will NOT contain the 0kG factor !
+        if self.fitFields and (nbOfFields>1):
+            mcmcsForLnLike = mcmcs[1:] ## Without magnetic field component
         else:
             mcmcsForLnLike = mcmcs
         _  = self.lnlike(mcmcsForLnLike)
@@ -3447,10 +3445,12 @@ class SpectralAnalysis:
                 self.teffs, self.loggs, self.mhs, self.alphas, resdict['vb'],
                 resdict['rv'], resdict['vsini'], resdict['vmac'], resveil_tofit, resdict['teff2'], resFillTeffs)
         ## Here, we want the same as the results of the mcmcs, but the magnetic components should be set to zero.
-        if nbOfFields>0:
+        if self.fitFields and (nbOfFields>1):
             mcmcsForLnLike_0kG = np.copy(mcmcsForLnLike)
             mcmcsForLnLike_0kG[0] = 1
             mcmcsForLnLike_0kG[1:nbOfFields] = 0
+        else:
+            mcmcsForLnLike_0kG = mcmcsForLnLike
         _  = self.lnlike(mcmcsForLnLike_0kG)
         minchi2exp = np.sum(self._res)
         #
