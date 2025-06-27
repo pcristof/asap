@@ -8,7 +8,7 @@ setup(
     description='A Spectra Analysis Pipeline',
     long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
-    url='https://github.com/yourusername/my_package',  # Replace with your repo URL
+    url='https://github.com/pcristof/asap',  # Replace with your repo URL
     packages=find_packages(),  # Automatically find package directories
     include_package_data=True,  # Include package data files
     package_data={
