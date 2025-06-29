@@ -168,6 +168,9 @@ No.    Name      Ver    Type      Cards   Dimensions   Format
   3  ERR           1 ImageHDU         8   (4088, 49)   float64   
 ```
 
+#### Line list
+ASAP reads a list of regions to use to perform the fit. It is designed to automatically select the orders of the spectra with maximum throughput, and re-agarange the provided segments to optmize the number of regions containing the lines we selected. The file contains 5 columns:
+Center wavelength, lower wavelength, upper wavelength, element, ionization state, order. The last three columns must exist, but are unused in the current version of ASAP (I often default them to 'U 1 0'). Wavelengths must be in nanometers.
 
 # Thank for using ASAP !
 If you find miskates or have suggestions, be sure to reach out.
