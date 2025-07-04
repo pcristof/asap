@@ -55,10 +55,10 @@ This will create a `config.ini` file. Take a moment to look at this example file
 3. Modify the config.ini file so that the 'pathToGrid' and 'pathToData' point to the correct directories on your local computer. 
 
 ##### Running the analysis
-4. You can now run the anlysis by simply typing `python3 -m asap dotau`. This will create a new direcotry 'output_dotau' containing the results of the analysis and a copy of the configuration file.
+4. You can now run the anlysis by simply typing `python3 -m asap 2624250p.fits`. This will create a new direcotry 'output_2624250p' containing the results of the analysis and a copy of the configuration file.
 
 ### Understanding your results files
-You should now see a new directory 'output_dotau'. The directory will contain a number of figures whose names and should be self-explanatory:
+You should now see a new directory 'output_2624250p'. The directory will contain a number of figures whose names and should be self-explanatory:
 - a0-b.pdf
 - b-distrib.pdf
 - b_histogram.pdf
@@ -155,9 +155,9 @@ The results_raw.txt file contains results extracted from the posterior distribut
 ASAP reads grids of ZeeTurbo (or other!) spectra in a very specific format. The choice of hdf5 format was motivated by 1- the easy link to a unique wavelength solution file reducing disk space usage and 2- the highly efficient IO that h5py offers. The working example comes with a very minimal grid for storage reasons.
  
 #### Observation data
-ASAP reads spectra store in a FITS file. Note that the program was designed to handle spectra with multiple orders.
-Your input FITS files should contain a HDUList with 3 *ordered* cards **after** the PrimaryHDU, containing the 2D wavelength, normalized fluxes, and errors. Currently, no other format is adequately supported (see example below).
-
+ASAP reads spectra stored in a FITS file. Note that the program was designed to handle spectra with multiple orders.
+There are now two supported formats for the input:</br>
+1.  A fits a HDUList with 3 *ordered* cards **after** the PrimaryHDU, containing the 2D wavelength, normalized fluxes, and errors. Currently, no other format is adequately supported (see example below).
 ```
 >> hdu.info()
 Filename: dotau_templates.fits
@@ -167,6 +167,7 @@ No.    Name      Ver    Type      Cards   Dimensions   Format
   2  TEMPLATE      1 ImageHDU         8   (4088, 49)   float64   
   3  ERR           1 ImageHDU         8   (4088, 49)   float64   
 ```
+2. The original p.fits file provided by the APERO reduction software (for SPIRou observations).
 
 #### Line list
 ASAP reads a list of regions to use to perform the fit. It is designed to automatically select the orders of the spectra with maximum throughput, and re-agarange the provided segments to optmize the number of regions containing the lines we selected. The file contains 5 columns:
