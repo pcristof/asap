@@ -53,6 +53,7 @@ from asap import normalization_tools as norm_tools
 from numba import jit
 import h5py
 from importlib.resources import files
+from asap.spectral_analysis_pack import fill_nans_wavelength
 
 def read_res(filename):
     '''This function is designed to parse the results in a typical raw output
@@ -1250,30 +1251,57 @@ class SpectralAnalysis:
             filename = filename.replace('gl', 'gj')
             self.star = self.star.replace('gl', 'gj')
         ## Open fits file
-        hdu = fits.open(filename)
-        wvl = hdu[1].data; template = hdu[2].data; 
-        ## Resolving the type of file. Originally, I had big fits with more cards than needed.
-        ## For distribution I try to simplify things and set the input to 3 cards (wvl, flx, err).
-        ## I need to check whether I am in the old format or not.
-        ## Check if I have exactly the old cards in that order:
-        if (len(hdu)>4):
-            if  ((hdu[1].name=='WVL') and (hdu[2].name=='TEMPLATE') and (hdu[3].name=='ERR')) \
-                and (hdu[4].name=='ERR_PROPAG') and (hdu[5].name=='CONTINUUM'):
-                ## This is the old file format
-                if self.errType=="propag":
-                    template_err = hdu[4].data
-                elif self.errType=='std':
-                    template_err = hdu[3].data
-                elif self.errType=='sqrt':
-                    # template_err = 1/np.sqrt(template)
-                    snrc = 2000 ## SNR in the continuum (assumed high)
-                    template_err = np.sqrt(template*snrc**2+100) / snrc**2
+        mode = 'p.fits'
+        ## Resoving file type:
+        if "p.fits" in filename:
+            ## Check that the file is compatible with the file format
+            with fits.open(filename) as hdu:
+                if len(hdu)==9:
+                    keys = [hdu[i].name for i in range(len(hdu))]
+                    for name in ['PRIMARY', 'Pol', 'PolErr', 'StokesI', 'StokesIErr',
+                                  'Null1', 'Null2', 'WaveAB', 'BlazeAB']:
+                        if name not in keys:
+                            print(name)
+                            ## This is not a p.fits
+                            mode='poloformat'
+        if mode=='p.fits':
+            with fits.open(filename) as hdu:
+                wvl = hdu['WaveAB'].data
+                template = hdu['StokesI'].data
+                template_err = hdu['StokesIErr'].data
+            ## In the p.fits files, there are NaNs in the wavelength solution. 
+            ## That is a problem for us, so we complete it:
+            wvl = fill_nans_wavelength(wvl)
+            from IPython import embed
+            embed()
+            plt.figure()
+            plt.plot(wvl.T,template.T )
+            plt.show()
+        if mode=='poloformat':
+            hdu = fits.open(filename)
+            wvl = hdu[1].data; template = hdu[2].data; 
+            ## Resolving the type of file. Originally, I had big fits with more cards than needed.
+            ## For distribution I try to simplify things and set the input to 3 cards (wvl, flx, err).
+            ## I need to check whether I am in the old format or not.
+            ## Check if I have exactly the old cards in that order:
+            if (len(hdu)>4):
+                if  ((hdu[1].name=='WVL') and (hdu[2].name=='TEMPLATE') and (hdu[3].name=='ERR')) \
+                    and (hdu[4].name=='ERR_PROPAG') and (hdu[5].name=='CONTINUUM'):
+                    ## This is the old file format
+                    if self.errType=="propag":
+                        template_err = hdu[4].data
+                    elif self.errType=='std':
+                        template_err = hdu[3].data
+                    elif self.errType=='sqrt':
+                        # template_err = 1/np.sqrt(template)
+                        snrc = 2000 ## SNR in the continuum (assumed high)
+                        template_err = np.sqrt(template*snrc**2+100) / snrc**2
+                else:
+                    template_err = 0.01*template
             else:
-                template_err = 0.01*template
-        else:
-            ## New simplified file format:
-            template_err = hdu[3].data
-        hdu.close()
+                ## New simplified file format:
+                template_err = hdu[3].data
+            hdu.close()
         # dop = tls.doppler(110) ## RV shift
         if self.guessRV:
             radvel = guess_vrad(wvl, template)
