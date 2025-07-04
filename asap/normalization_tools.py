@@ -363,3 +363,21 @@ def fit_poly(x, z, degree=3):
     ## Fit function on data    
     popt, pcov = curve_fit(_poly, x, z) 
     return popt, pcov
+
+@jit(nopython=True)
+def normalize_axis(a,b):
+    '''
+    method that modify array based on second array
+    returns (a-np.mean(b))/(np.max(a)-np.min(b))    
+    '''
+    c = (a-np.mean(b))/(np.max(b)-np.min(b))
+    return c
+
+@jit(nopython=True)
+def revert_normalize_axis(a,b):
+    '''
+    method that modify array based on second array
+    returns a*(np.max(b)-np.min(b))+np.mean(b)   
+    '''
+    c = a*(np.max(b)-np.min(b))+np.mean(b)
+    return c

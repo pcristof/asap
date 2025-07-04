@@ -1272,11 +1272,6 @@ class SpectralAnalysis:
             ## In the p.fits files, there are NaNs in the wavelength solution. 
             ## That is a problem for us, so we complete it:
             wvl = fill_nans_wavelength(wvl)
-            from IPython import embed
-            embed()
-            plt.figure()
-            plt.plot(wvl.T,template.T )
-            plt.show()
         if mode=='poloformat':
             hdu = fits.open(filename)
             wvl = hdu[1].data; template = hdu[2].data; 

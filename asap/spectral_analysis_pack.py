@@ -5,7 +5,7 @@ from numba import jit
 from asap import analysis_tools as tls
 from asap import effects as effects
 from asap import normalization_tools as norm_tools
-
+from asap import polyfit
 from numba import types
 from numba.typed import Dict
 
@@ -482,3 +482,52 @@ def veiling_function(veilingParams, wvl, veilingBands, mode='interp_between'):
     #     myveiling[i] = np.interp(wvl[i], wavelengths, myVeilArray)
 
     return myveiling
+
+def fill_nans_wavelength(med_wvl):
+    ####################################
+    if np.any(np.isnan(med_wvl)):
+        ## Some people put NaNs in the wavelengths... don't ask.
+        ## Here is a fix:
+        new_med_wvl = np.empty(med_wvl.shape)
+        prev_high = 0 ## highest wvl of the previous order 
+        for r in range(len(med_wvl)):
+            x = np.arange(len(med_wvl[r]), dtype=float)
+            idx = np.where(~np.isnan(med_wvl[r]))
+            poly_order = 6
+            if len(x[idx])==2:
+                poly_order = 1
+            elif len(x[idx])<2:
+                poly_order = 0
+            
+            ## Let's fit a polynomial to that
+            # from irap_tools import polyfit as polyfit
+            # from irap_tools import normalizationTools as norm_tools
+
+            if poly_order>0:
+                x = norm_tools.normalize_axis(x, x)
+                coeffs = polyfit.fit_1d_polynomial(x[idx], 
+                                                   np.array(med_wvl[r][idx], 
+                                                            dtype=float),poly_order)
+                fit = polyfit.poly1d(x, coeffs)
+                new_med_wvl[r] = fit
+                prev_high = new_med_wvl[r][-1]
+            else:
+                ## In that case we have a problem.
+                ## We start from the last wavelength of the previous order
+                ## We end with the a default value of 25000 (like for SPIRou).
+                ## It shouldn't really matter because this is full of NaNs, that we are going to ignore.
+                next_low = 25000
+                new_med_wvl[r] = np.linspace(prev_high, next_low, len(new_med_wvl[r]), dtype=float)
+
+            ## Check that the residuals are sufficiently low:
+            std = np.nanstd(med_wvl[r] - new_med_wvl[r])
+
+            if std>1e-6:
+                import matplotlib.pyplot as plt
+                plt.figure()
+                plt.plot(med_wvl[r] - new_med_wvl[r])
+                plt.show()
+                print(f'STD = {std}')
+                raise Exception('Reconstructing wavelength solution: STD too high. Contact Author')
+    ########################################## 
+    return new_med_wvl

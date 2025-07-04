@@ -28,6 +28,8 @@ args = parser.parse_args()
 ncores = args.nbofcores
 dynesty = args.dynesty
 star = args.star.lower().strip()
+if star[-5:] == '.fits':
+    star = star[:-5]
 folderid = args.folderid
 mpi = args.mpi
 profile = args.profile
@@ -84,11 +86,12 @@ print('CONFIG READ')
 labels = SA.return_labels()
 
 ## Observation file
-infile = SA.pathtodata + "{}_templates.fits".format(star)
+# infile = SA.pathtodata + "{}_templates.fits".format(star)
+# if not os.path.isfile(infile):
+#     infile = SA.pathtodata + "{}.fits".format(star)
+infile = SA.pathtodata + "{}.fits".format(star)
 if not os.path.isfile(infile):
-    infile = SA.pathtodata + "{}.fits".format(star)
-if not os.path.isfile(infile):
-    print("Template file not found")
+    print(f"Template file {infile} not found")
     raise Exception('Template file not found')
 ## Regions file
 region_file = SA.linelist
