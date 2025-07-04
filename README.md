@@ -169,6 +169,8 @@ No.    Name      Ver    Type      Cards   Dimensions   Format
 ```
 2. The original p.fits file provided by the APERO reduction software (for SPIRou observations).
 
+ASAP use the filename to know what format you provided. If you want to use the p.fits file, you must specify the full file name containing the "p.fits" extension.
+
 #### Line list
 ASAP reads a list of regions to use to perform the fit. It is designed to automatically select the orders of the spectra with maximum throughput, and re-agarange the provided segments to optmize the number of regions containing the lines we selected. The file contains 5 columns:
 Center wavelength, lower wavelength, upper wavelength, element, ionization state, order. The last three columns must exist, but are unused in the current version of ASAP (I often default them to 'U 1 0'). Wavelengths must be in nanometers.
