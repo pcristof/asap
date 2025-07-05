@@ -1269,9 +1269,6 @@ class SpectralAnalysis:
                 wvl = hdu['WaveAB'].data
                 template = hdu['StokesI'].data
                 template_err = hdu['StokesIErr'].data
-            ## In the p.fits files, there are NaNs in the wavelength solution. 
-            ## That is a problem for us, so we complete it:
-            wvl = fill_nans_wavelength(wvl)
         if mode=='poloformat':
             hdu = fits.open(filename)
             wvl = hdu[1].data; template = hdu[2].data; 
@@ -1297,7 +1294,15 @@ class SpectralAnalysis:
                 ## New simplified file format:
                 template_err = hdu[3].data
             hdu.close()
-        # dop = tls.doppler(110) ## RV shift
+
+        ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
+        ## That is a problem for us, so we complete it:
+        from IPython import embed
+        embed()
+        if np.any(np.isnan(wvl)):
+            wvl = fill_nans_wavelength(wvl)
+        
+        ## Get a RV guess
         if self.guessRV:
             radvel = guess_vrad(wvl, template)
         else:
