@@ -1264,6 +1264,8 @@ class SpectralAnalysis:
                             print(name)
                             ## This is not a p.fits
                             mode='poloformat'
+        else:
+            mode='poloformat'
         if mode=='p.fits':
             with fits.open(filename) as hdu:
                 wvl = hdu['WaveAB'].data
@@ -1297,8 +1299,6 @@ class SpectralAnalysis:
 
         ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
         ## That is a problem for us, so we complete it:
-        from IPython import embed
-        embed()
         if np.any(np.isnan(wvl)):
             wvl = fill_nans_wavelength(wvl)
         
