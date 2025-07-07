@@ -499,30 +499,26 @@ def fill_nans_wavelength(med_wvl):
             elif len(x[idx])<2:
                 poly_order = 0
             
-            ## Let's fit a polynomial to that
-            # from irap_tools import polyfit as polyfit
-            # from irap_tools import normalizationTools as norm_tools
-
-            if poly_order>0:
-                x = norm_tools.normalize_axis(x, x)
+            if len(x[idx])>20:
+                x = norm_tools.normalize_axis(x, x[idx])
                 coeffs = polyfit.fit_1d_polynomial(x[idx], 
                                                    np.array(med_wvl[r][idx], 
                                                             dtype=float),poly_order)
                 fit = polyfit.poly1d(x, coeffs)
                 new_med_wvl[r] = fit
                 prev_high = new_med_wvl[r][-1]
+                ## Check that the residuals are sufficiently low:
+                std = np.nanstd(med_wvl[r] - new_med_wvl[r])
             else:
+                print('Caution, full NaN order')
                 ## In that case we have a problem.
                 ## We start from the last wavelength of the previous order
                 ## We end with the a default value of 25000 (like for SPIRou).
                 ## It shouldn't really matter because this is full of NaNs, that we are going to ignore.
                 next_low = 25000
-                new_med_wvl[r] = np.linspace(prev_high, next_low, len(new_med_wvl[r]), dtype=float)
-
-            ## Check that the residuals are sufficiently low:
-            std = np.nanstd(med_wvl[r] - new_med_wvl[r])
-
-            if std>1e-4:
+                new_med_wvl[r] = np.linspace(prev_high, next_low, len(new_med_wvl[r]), dtype=float)*np.nan
+                std = 1e-20 ## dummy value
+            if std>1e-6:
                 import matplotlib.pyplot as plt
                 plt.figure()
                 plt.plot(med_wvl[r] - new_med_wvl[r])
