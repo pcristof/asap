@@ -522,7 +522,7 @@ def fill_nans_wavelength(med_wvl):
             ## Check that the residuals are sufficiently low:
             std = np.nanstd(med_wvl[r] - new_med_wvl[r])
 
-            if std>1e-6:
+            if std>1e-4:
                 import matplotlib.pyplot as plt
                 plt.figure()
                 plt.plot(med_wvl[r] - new_med_wvl[r])
