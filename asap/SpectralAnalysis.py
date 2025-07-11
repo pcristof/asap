@@ -415,6 +415,7 @@ class SpectralAnalysis:
         self.autoLogg = False
         self.errorsAdj = False ## Informational variable (only used to keep track)
         self.file_struc = '{}g{:0.1f}z{:0.2f}a{:.2f}b{:04.0f}p{:0.1f}rot{:0.2f}beta{:0.2f}.hdf5'
+        self.latex = False
         self.instrument = 'spirou'
         self.AVAILABLE_PARAMS = ['a0', 'a2', 'a4', 'a6', 'a8', 'a10',
                                  'teff', 'logg', 'mh', 'alpha', 
@@ -2329,6 +2330,10 @@ class SpectralAnalysis:
         '''This function saves the normFactor to for the current star
         - First we check if the star is in the file
         - We rewrite the file with the new value of append the data'''
+
+        if not self.latex:
+            plt.rcParams['text.usetex'] = False
+
 
         ## Try to read from renormFactors from file
         # factor_fname = paths.support_data + 'spectral_analysis/normFactors.txt' 
