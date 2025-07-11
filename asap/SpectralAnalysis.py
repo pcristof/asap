@@ -311,6 +311,7 @@ class SpectralAnalysis:
     can be changed using the update functions.'''
 
     def __init__(self, **kargs):
+        self.message = "Output message to the user\n"
         self.dynesty = False
         self.teffs = np.arange(2700, 4000, 100); 
         self.loggs = np.arange(4.0, 6., .5)
@@ -1340,8 +1341,6 @@ class SpectralAnalysis:
             for iL, _L in enumerate([_Ll, _Lh]):
                 for iM, _M in enumerate([_Ml, _Mh]):
                     for iA, _A in enumerate([_Al, _Ah]):
-                        # from IPython import embed
-                        # embed()
                         if len(self.bs)<2:
                             _coeffs = np.array([1])
                         _fit = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, self.nan_mask, self.nwvls, self.grid_n, 
@@ -1355,8 +1354,6 @@ class SpectralAnalysis:
             _mymask = filter_lines(self.obs_flux[o], mybgrid[:,:,:,:,o,:])
             mask_exclude[o] = _mymask
 
-        # from IPython import embed
-        # embed()
         # mask_exclude_bit = np.where(mask_exclude)
         # self.IDXTOFIT = (self.IDXTOFIT & mask_exclude_bit)
         self.IDXTOFIT = np.where((~np.isnan(self.obs_flux_tofit)) & (mask_exclude==1))
@@ -1560,8 +1557,6 @@ class SpectralAnalysis:
         #     t2 = np.interp(obs_wvl[r], obs_wvl[r][idx], obs_err[r][idx])
         #     obs_flux[r] = t
         #     obs_err[r] = t2
-        # # from IPython import embed
-        # # embed()
 
         ## If we add the option to smooth the spectrum, it will go here:
         if self.smoothSpectra:
@@ -1600,11 +1595,74 @@ class SpectralAnalysis:
 
         return obs_wvl, obs_flux, obs_err, nan_mask, regions
 
+    def parse_filename(self, fname):
+        # '{}g{:0.1f}z{:0.2f}a{:.2f}b{:04.0f}p{:0.1f}rot{:0.2f}beta{:0.2f}.hdf5'
+        variables = {}
+        tmpname = fname.split('g')
+        variables['teff'] = int(float(tmpname[0]))
+        tmpname = fname.split('g')[1].split('z')
+        variables['logg'] = float(tmpname[0])
+        tmpname = fname.split('z')[1].split('a')
+        variables['mh'] = float(tmpname[0])
+        tmpname = fname.split('a')[1].split('b')
+        variables['alpha'] = float(tmpname[0])
+        tmpname = fname.split('b')[1].split('p')
+        variables['bval'] = float(tmpname[0])
+        tmpname = fname.split('p')[1].split('rot')
+        variables['phase'] = float(tmpname[0])
+        tmpname = fname.split('rot')[1].split('beta')
+        variables['rot'] = float(tmpname[0])
+        tmpname = fname.split('beta')[1].split('.hdf5')
+        variables['beta'] = float(tmpname[0])
+        return variables
+
+    def interpret_grid_dimensions(self, pathtogrid):
+        '''Function to automatically read the grid limits available
+        The function should allow me to obtain arrays of uneven teffs, loggs, etc.'''
+        import glob
+        filelist = glob.glob(pathtogrid+'*.hdf5')
+        if len(filelist)==0:
+            return None, None, None, None ## No file found in this format
+        ## I need a list of all teffs, loggs, and mhs
+        teffs=[]; loggs=[]; mhs=[]; alphas=[]; ## Right now ignoring the phase, rot and beta
+        for file in filelist:
+            if 'wave.hdf5' in file: continue
+            variables = self.parse_filename(file.split('/')[-1])
+            if variables['teff'] not in teffs: teffs.append(variables['teff'])
+            if variables['logg'] not in loggs: loggs.append(variables['logg'])
+            if variables['mh'] not in mhs: mhs.append(variables['mh'])
+            if variables['alpha'] not in alphas: alphas.append(variables['alpha'])
+        teffs.sort(); loggs.sort(); mhs.sort(); alphas.sort()
+        ## CAUTION: This will break if the grid is not "square"
+        teffs=np.array(teffs); loggs=np.array(loggs); 
+        mhs=np.array(mhs); alphas=np.array(alphas)
+        return teffs, loggs, mhs, alphas
+
     ###################################
     #### ---- LOAD MODEL GRID ---- ####
     ###################################
     def load_grid(self, pathtogrid, regions):
         '''Load a grid of models for all mag field strengths'''
+        ## Ensures the path ends with a '/'
+        if pathtogrid[-1]!='/': pathtogrid+='/'
+        _t,_l,_m,_a = self.interpret_grid_dimensions(pathtogrid)
+        ## Adjust arrays so that we take the true values in the grid and only use the min and max
+        _tl = self.teffs[0];_th = self.teffs[-1]
+        idx = (_t>=_tl) & (_t<=_th)
+        self.teffs = _t[idx]
+        _ll = self.loggs[0];_lh = self.loggs[-1]
+        idx = (_l>=_ll) & (_l<=_lh)
+        self.loggs = _l[idx]
+        _ml = self.mhs[0];_mh = self.mhs[-1]
+        idx = (_m>=_ml) & (_m<=_mh)
+        self.mhs = _m[idx]
+        _al = self.alphas[0];_ah = self.alphas[-1]
+        idx = (_a>=_al) & (_a<=_ah)
+        self.alphas = _a[idx]
+        message_line = "/!\ Grid dimensions were adjusted: bypassing user requested grid"
+        self.message += message_line
+        print(message_line)
+        ## Read this grid
         print('Loading grid')
         wgrid = np.zeros((self.d1, self.d2, self.d3, 
                           self.d4, self.d5, self.d6)).tolist()
@@ -1858,9 +1916,6 @@ class SpectralAnalysis:
             self.obs_flux = np.array([self.obs_flux])
             self.obs_err = np.array([self.obs_err])
             self.nan_mask = np.array([self.nan_mask])
-        
-        # from IPython import embed
-        # embed()
 
         ## Here it is very important that we udpate the bins on which we perform the fit
         ## This was intially done in the create regions function.
@@ -1907,9 +1962,6 @@ class SpectralAnalysis:
         ## This make a unique int encoding a specific set of numbers.
         ##
         # ## This is a test for speed.
-        # from IPython import embed
-        # embed()
-
         # from numba import types
         # from numba.typed import Dict
 
@@ -2041,6 +2093,8 @@ class SpectralAnalysis:
             _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
                                                             macProf=self.vmacMode)
         except:
+            print('EMBED CALLED')
+            print('You are in SA.gen_spec')
             from IPython import embed
             embed()
 
@@ -2422,8 +2476,6 @@ class SpectralAnalysis:
 
         # _resup = _resup - _resupcont
 
-        # from IPython import embed
-        # embed()
         # exit(1)
         # ## ------------------------------------------------------------------------------
     
@@ -3101,14 +3153,10 @@ class SpectralAnalysis:
                 maxres = self.maxdir(res)
                 #
 
-                # from IPython import embed
-                # embed()
                 # 2 - get the maximum of likelihood for the distribution
                 idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
                 maxpos = meanfield[idx]
                 #
-                # from IPython import embed
-                # embed()
                 # THISISATEST: we try to take the average of the maxima of the 50 highest points
                 # idxsort = np.argsort(log_prob_walkers)
                 # sortedmeanfield = meanfield[idxsort]
@@ -3198,8 +3246,6 @@ class SpectralAnalysis:
                 for i in range(len(fig.axes)):
                     fig.axes[i].set_title(fig.axes[i].title.get_text().replace("=", ''))
 
-                # from IPython import embed
-                # embed()
                 ## What is the maximum of the 0 comp?
                 idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
                 # maxfirstcoeff = nssamples[idx][0]
@@ -3308,8 +3354,6 @@ class SpectralAnalysis:
             max50 = meanfield[idx50]
             maxpos = np.array([np.mean(max50)])
             emaxpos = (np.max(max50) - np.min(max50))/2
-            # from IPython import embed
-            # embed()
             #
             # Store the result in a variable
             maxproba_meanfield = maxpos[0]

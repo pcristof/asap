@@ -313,15 +313,9 @@ def broaden_spectra(args, **kwargs):
                                                 window_size=100,
                                                 p=90,
                                                 degree=1, m=0.05, function=function)
-            # except:
-            #     from IPython import embed
-            #     embed()
             if len(X)==1:
                 X = np.array([0, X[0]])
                 Xerr = np.array([0, Xerr[0]])
-            # except:
-            #     from IPython import embed
-            #     embed()
         else:
             _c = np.ones(_spectrum.shape)
             _pss = [0,0,0,0]
