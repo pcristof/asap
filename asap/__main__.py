@@ -27,7 +27,7 @@ parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
 args = parser.parse_args()
 ncores = args.nbofcores
 dynesty = args.dynesty
-star = args.star.lower().strip()
+star = args.star.strip()
 if star[-5:] == '.fits':
     star = star[:-5]
 folderid = args.folderid
