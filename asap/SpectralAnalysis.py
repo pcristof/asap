@@ -2091,14 +2091,8 @@ class SpectralAnalysis:
                 nan_mask, totvb, vmac, vsini, 
                 0, 0, 0, '0', self.adjcont, 'line']
         ## fit is the model after broadening and adjustment
-        try:
-            _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-                                                            macProf=self.vmacMode)
-        except:
-            print('EMBED CALLED')
-            print('You are in SA.gen_spec')
-            from IPython import embed
-            embed()
+        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                        macProf=self.vmacMode)
 
         # ## Here we determine the correct veiling
         ## Here I forbid the veiling from the other bands to compensate for the veiling
