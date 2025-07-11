@@ -54,6 +54,7 @@ from numba import jit
 import h5py
 from importlib.resources import files
 from asap.spectral_analysis_pack import fill_nans_wavelength
+import shutil
 
 def read_res(filename):
     '''This function is designed to parse the results in a typical raw output
@@ -2331,10 +2332,6 @@ class SpectralAnalysis:
         - First we check if the star is in the file
         - We rewrite the file with the new value of append the data'''
 
-        if not self.latex:
-            plt.rcParams['text.usetex'] = False
-
-
         ## Try to read from renormFactors from file
         # factor_fname = paths.support_data + 'spectral_analysis/normFactors.txt' 
         factor_fname = self.normfacfile
@@ -2979,6 +2976,9 @@ class SpectralAnalysis:
             np.save(self.opath+"samples", samples)
             np.save(self.opath+"weights", samples)
 
+        ## Sometimes we run into problems with latex. Let's check if latex is usable:
+        if shutil.which('latex'): self.latex = True
+
         ## Reasign        
         samples_noflat_0 = samples
         data = {}
@@ -3397,7 +3397,7 @@ class SpectralAnalysis:
 
             if self.fitFields:
 
-                params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': True,'figure.figsize' : (6.4, 4.8)}
+                params= {'xtick.labelsize': 18,'ytick.labelsize': 18,'axes.labelsize': 20, 'legend.fontsize': 16,   'text.usetex': self.latex,'figure.figsize' : (6.4, 4.8)}
                 plt.rcParams.update(params)
 
                 xaxis = self.bs
