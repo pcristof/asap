@@ -9,13 +9,28 @@ def main():
     from asap import effects as effects
     from datetime import datetime
     import sys
-    sigma = 0.01
+    import argparse ## To read optional arguments
+    from asap import integrate
+
+    parser = argparse.ArgumentParser()
+    # parser.add_argument("star", type=str)
+    # parser.add_argument("folderid", nargs='?', type=str, default=None)
+    parser.add_argument("-o", "--output", type=str, default='test')
+    parser.add_argument("-std", "--std", type=float, default=0.02)
+    # parser.add_argument("-m", "--mpi", type=bool, default=False)
+    # parser.add_argument("-p", "--profile", type=bool, default=False)
+    # parser.add_argument("-d", "--dynesty", type=bool, default=False)
+    parser.add_argument("-w", "--overwrite", action='store_true')
+
+    args = parser.parse_args()
+    sigma = args.std
+    star = args.output
+    overwrite = args.overwrite
 
     locpath = os.getcwd()
     config_file = locpath + '/config.ini'
 
     SA = SpectralAnalysis()
-    star = 'test'
     SA.read_config(config_file)
     SA.resampleVel = False
 
@@ -25,6 +40,15 @@ def main():
         print('Please update your config.ini file.')
         print('PROGRAM END')
         exit()
+
+    ## output filename
+    fname = SA.pathtodata + '/{}.fits'.format(star)
+    if os.path.isfile(fname):
+        if (not overwrite):
+            print(f'File {fname} already exists.')
+            print('If you wish to overwrite, use the -w option.')
+            print('PROGRAM END')
+            return 0
 
     _t,_l,_m,_a = SA.interpret_grid_dimensions(SA.pathtogrid)
 
@@ -144,7 +168,16 @@ def main():
             # Now the problem is that we must put the wavelength in place
             idx = np.where((locmedwvl>=subwvl[0]) & (locmedwvl<=subwvl[-1]))
             # locmedflux = inte.fftintegrate(locmedwvl[idx], subwvl, subflux)
+            import time
+            itime = time.time()
             locmedflux = np.interp(locmedwvl[idx], subwvl, subflux)
+            etime = time.time()
+            print(f'np.interp time: {(etime-itime)*1000:0.4f} ms')
+            itime = time.time()
+            locmedflux = integrate.integrate(locmedwvl[idx], subwvl, subflux, 
+                                             dspeed=2000., auto=True)
+            etime = time.time()
+            print(f'integrate time: {(etime-itime)*1000:0.4f} ms')
             # And finally we put populuate the output array
             med_spectrum[r, idx] = locmedflux
     #
@@ -205,8 +238,7 @@ def main():
     hdu2 = fits.ImageHDU(data=med_spectrum_noisy, name='TEMPLATE')
     hdu3 = fits.ImageHDU(data=med_err, name='ERR')
     hdul = fits.HDUList([hdu, hdu1, hdu2, hdu3])
-    fname = SA.pathtodata + '/{}.fits'.format(star)
-    hdul.writeto(fname, overwrite=False)
+    hdul.writeto(fname, overwrite=overwrite)
     print(f'File created {fname}')
     ################################
 
