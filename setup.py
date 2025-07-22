@@ -36,6 +36,7 @@ setup(
     entry_points={
         'console_scripts': [
             'asap.configure=asap.helper_tools:configure',  # Command-line utility
+            'asap.gen_synth_obs=asap.scripts.gen_synth_obs:main',  # Command-line utility
             # 'asap.run_analysis=asap.scripts.run_analysis:main',  # Command-line utility
         ],
     },
