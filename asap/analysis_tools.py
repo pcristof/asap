@@ -97,3 +97,11 @@ def resample_vel_interp(wvl, flux, vel=None, kind='linear'):
     else:
         outflux = interp1d(wvl, flux, kind=kind)(outwvl)
     return outwvl, outflux
+
+def add_gaussian_noise(spectrum=None, sigma=0.02):
+    '''
+    Add gaussian noise to input in a homogeneous manner
+    '''
+    noise = sigma * np.random.normal(size = np.shape(spectrum))
+    spectrum_noisy =  spectrum + noise
+    return spectrum_noisy, noise
