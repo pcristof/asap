@@ -1620,7 +1620,8 @@ class SpectralAnalysis:
 
     def interpret_grid_dimensions(self, pathtogrid):
         '''Function to automatically read the grid limits available
-        The function should allow me to obtain arrays of uneven teffs, loggs, etc.'''
+        The function should allow me to obtain arrays of uneven teffs, 
+        loggs, etc.'''
         import glob
         filelist = glob.glob(pathtogrid+'*.hdf5')
         if len(filelist)==0:
@@ -1648,7 +1649,8 @@ class SpectralAnalysis:
         ## Ensures the path ends with a '/'
         if pathtogrid[-1]!='/': pathtogrid+='/'
         _t,_l,_m,_a = self.interpret_grid_dimensions(pathtogrid)
-        ## Adjust arrays so that we take the true values in the grid and only use the min and max
+        ## Adjust arrays so that we take the true values in the grid 
+        ## and only use the min and max
         _tl = self.teffs[0];_th = self.teffs[-1]
         idx = (_t>=_tl) & (_t<=_th)
         self.teffs = _t[idx]
@@ -1661,7 +1663,8 @@ class SpectralAnalysis:
         _al = self.alphas[0];_ah = self.alphas[-1]
         idx = (_a>=_al) & (_a<=_ah)
         self.alphas = _a[idx]
-        message_line = "/!\ Grid dimensions were adjusted: bypassing user requested grid"
+        message_line = "/!\ Grid dimensions were adjusted: " \
+                       +"bypassing user requested grid"
         self.message += message_line
         print(message_line)
         ## Read this grid
@@ -1671,11 +1674,7 @@ class SpectralAnalysis:
         wvls = np.zeros((self.d6)).tolist()
         grid = np.zeros([self.d1, self.d2, self.d3, 
                           self.d4, self.d5, self.d6]).tolist()
-        # teffs = np.arange(3300, 3500, 100); loggs = np.arange(5.0, 6., .5)
-        # mhs = np.arange(-0.5, 0.5, .5); alphas = np.arange(0.00, 0.50, .25); 
-        # bs = np.arange(0, 10, 2)
-        # control_wgrid = np.zeros([2, 2, 2, 2, 9, 1, 632001])
-        # control_grid = np.zeros([2, 2, 2, 2, 9, 1, 632001])
+        
         ntot = self.d1*self.d2*self.d3*self.d4*self.d5
         n = 0
         for it, teff in enumerate(self.teffs):
@@ -1689,7 +1688,9 @@ class SpectralAnalysis:
                                 ## TODO: REMOVE HARDCODE
                                 ztfile_struct = self.file_struc
                                 phase = 0.0; rot=90.; beta=0.
-                                ztfile = ztfile_struct.format(teff, logg, mh, alpha, B*1000, phase, rot, beta)
+                                ztfile = ztfile_struct.format(teff, logg, mh, 
+                                                              alpha, B*1000, 
+                                                              phase, rot, beta)
                                 filename = pathtogrid + ztfile
                                 with h5py.File(filename, 'r') as h5f:
                                     if 'wavelink' in h5f.keys():
