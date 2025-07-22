@@ -245,7 +245,14 @@ def broaden_spectrum_2(wvl, flux, vinstru=0, vsini=0, epsilon=0.6,
     if rtkernel is not None:
         masterkernel = np.convolve(masterkernel, rtkernel, mode='full')
     # masterkernel = masterkernel/np.sum(masterkernel)
-    oflux = np.convolve(oflux, masterkernel, mode='same')
+    if len(oflux)<len(masterkernel):
+        diff = len(masterkernel)-len(oflux)
+        edge = 2*diff
+        oflux_tmp = np.pad(oflux, edge, constant_values=1) 
+        oflux_tmp = np.convolve(oflux_tmp, masterkernel, mode='same')
+        oflux = oflux_tmp[edge:-edge]
+    else:
+        oflux = np.convolve(oflux, masterkernel, mode='same')
 
     # if gauss_kernel is not None:
     #     oflux = scipy.ndimage.convolve1d(oflux, gauss_kernel, mode='constant')
