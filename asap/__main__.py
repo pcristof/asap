@@ -90,9 +90,19 @@ labels = SA.return_labels()
 # if not os.path.isfile(infile):
 #     infile = SA.pathtodata + "{}.fits".format(star)
 infile = SA.pathtodata + "{}.fits".format(star)
-if not os.path.isfile(infile):
-    print(f"Template file {infile} not found")
-    raise Exception('Template file not found')
+infile2 = SA.pathtodata + "{}_templates.fits".format(star)
+fileFound = False
+if os.path.isfile(infile):
+    print(f"File found: {infile}")
+    fileFound = True
+if os.path.isfile(infile2):
+    print(f"File found: {infile2} -- using this one")
+    infile3 = infile2
+    infile = infile2
+    infile2 = infile3
+    fileFound = True
+if not fileFound:
+    raise Exception(f'Template file {infile} or {infile2} not found')
 ## Regions file
 region_file = SA.linelist
 #
