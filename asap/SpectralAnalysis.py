@@ -61,7 +61,10 @@ def read_res(filename):
     file.'''
     f = open(filename, 'r')
     for i, line in enumerate(f.readlines()):
+        if line.strip()=="------:": continue
         sl = line.split()
+        if ':' in line:
+            if line.split(":")[-1].strip()=="": line+='0.0 0.0'
         if i==0:
             coeffs = [float(sl[i]) for i in range(len(sl))]
         elif i==1:
