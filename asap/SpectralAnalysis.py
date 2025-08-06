@@ -1591,7 +1591,7 @@ class SpectralAnalysis:
                 _obs_flux_tofit[r][:-1] = np.diff(self.obs_flux_tofit[r])
             self.IDXTOFIT = np.where(~np.isnan(_obs_flux_tofit))
         else:
-            self.IDXTOFIT = np.where(~np.isnan(self.obs_flux_tofit))
+            self.IDXTOFIT = np.where(~np.isnan(self.obs_flux_tofit*obs_err))
         
         ## Store in global attributes:
         self.obs_wvl = obs_wvl; self.obs_flux = obs_flux; 
