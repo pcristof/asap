@@ -54,6 +54,7 @@ from numba import jit
 import h5py
 from importlib.resources import files
 from asap.spectral_analysis_pack import fill_nans_wavelength
+from asap.spectral_analysis_pack import fill_nans_wavelength_v2
 import shutil
 
 def read_res(filename):
@@ -1306,7 +1307,7 @@ class SpectralAnalysis:
         ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
         ## That is a problem for us, so we complete it:
         if np.any(np.isnan(wvl)):
-            wvl = fill_nans_wavelength(wvl)
+            wvl = fill_nans_wavelength_v2(wvl)
         
         ## Get a RV guess
         if self.guessRV:
@@ -1531,6 +1532,8 @@ class SpectralAnalysis:
             print('Error creating regions.')
             print('Regions upper bound lower than lower bound on line(s) # {}'.format(np.array(idx)+1))
             exit()
+
+        from IPython import embed; embed()
 
         ## Create regions for observed data and uncertainties    
         obs_wvl, obs_flux, masks= line_tools.make_regions_2d_orders(

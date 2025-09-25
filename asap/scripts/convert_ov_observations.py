@@ -66,24 +66,6 @@ def main():
         blaze_file = files("asap.support_data.blaze_data")\
                      .joinpath("blaze_half_flux.txt")
 
-    ## Read the blaze file
-    f = open(blaze_file, 'r')
-    lims = []
-    for il,line in enumerate(f.readlines()):
-        if line.strip()=="": continue ## empty line
-        if line.strip()[0]=='#': continue ## comment
-        ## Backward compatibility (first line was a comment)
-        if il==0:
-            try:
-                val = float(line.strip())
-            except:
-                pass
-        ##
-        val = float(line.strip())
-        lims.append(val)
-    f.close()
-    lims = np.array(lims)
-
     ## Go through each filename in the list:
     for fname in filenames:
         try:
@@ -113,27 +95,10 @@ def main():
         ## Reconstruct the 2D arrays:
         ## Reconstruct the orders:
         wvl_diff = np.diff(data['wave'][0])
-        med_sampling = np.median(wvl_diff)
-        idx_split = np.where((wvl_diff>10*med_sampling) | (wvl_diff<0))
-        wave_2d_list = np.split(data['wave'][0], idx_split[0])
-        flux_2d_list = np.split(data['flux'][0], idx_split[0])
-        err_2d_list = np.split(data['err'][0], idx_split[0])
-
-        from IPython import embed; embed()
-
-        lims = np.concatenate([[0], lims, [-1]])
-        thelist = []
-        for ii in range(len(lims)-1):
-            sublist = []
-            for jj in range(len(wave_2d_list)):
-                segw = wave_2d_list[jj][0]
-                if (segw>lims[ii]) & (segw<lims[ii+1]):
-                    sublist.append(jj)
-            thelist.append(sublist)
-
-        
-
-        ## Join the lists based on the limits
+        idx_split = np.where((wvl_diff<0))
+        wave_2d_list = np.split(data['wave'][0], idx_split[0]+1)
+        flux_2d_list = np.split(data['flux'][0], idx_split[0]+1)
+        err_2d_list = np.split(data['err'][0], idx_split[0]+1)
 
         ## Make 2D spectra
         maxlen = 0
