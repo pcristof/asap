@@ -523,7 +523,6 @@ def fill_nans_wavelength(med_wvl):
     return new_med_wvl
 
 def rebuilt_wavelength_v2(wave):
-    
     # med_diff is considered the typical sampling
     med_diff = np.min(np.diff(wave[~np.isnan(wave)]))
     nstart = 0
