@@ -521,3 +521,39 @@ def fill_nans_wavelength(med_wvl):
                 raise Exception('Reconstructing wavelength solution: STD too high. Contact Author')
     ########################################## 
     return new_med_wvl
+
+def rebuilt_wavelength_v2(wave):
+    
+    # med_diff is considered the typical sampling
+    med_diff = np.min(np.diff(wave[~np.isnan(wave)]))
+    nstart = 0
+    for bin in range(len(wave)-1):
+        if np.isnan(wave[bin]):
+            nstart = bin+1
+        else:
+            if np.isnan(wave[bin+1]):
+                wave[bin+1] = wave[bin]+med_diff
+    if nstart>0:
+        for bin in range(nstart, 0, -1):
+            if np.isnan(wave[bin-1]):
+                wave[bin-1] = wave[bin]-med_diff
+    return wave
+
+def fill_nans_wavelength_v2(med_wvl):
+    '''
+    Notes:
+    Update Sep. 18, 2025: Change of rationale
+    ASAP should no longer require wavelength to be evenly spaced, but does
+    require non-nan, increasing wavelengths
+    fill_nans_wavelength_v2 will replace NaNs based median sampling '''
+    ####################################
+    if np.any(np.isnan(med_wvl)):
+        ## Some people put NaNs in the wavelengths... don't ask.
+        ## Here is a fix:
+        new_med_wvl = np.empty(med_wvl.shape)
+        for r in range(len(med_wvl)):
+            new_med_wvl[r] = rebuilt_wavelength_v2(med_wvl[r])
+    else:
+        new_med_wvl = med_wvl
+    ########################################## 
+    return new_med_wvl
