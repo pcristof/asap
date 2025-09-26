@@ -388,6 +388,18 @@ def make_regions_2d_orders(wvl, flux, bounds, mask, orders, length=400):
     if np.any(np.diff(firstwaves)<0):
         raise Exception('make_regions_2d_orders: The orders are not increasing in wavelength.')
 
+    ## Update the maximum length based on maximum length of input regions:
+    nlength = length
+    for _bounds in bounds:
+        for order in range(len(wvl)):
+            cond = np.where((wvl[order]>_bounds[0]) & (wvl[order]<_bounds[1]))[0]
+            nbbins = len(wvl[order][cond])
+            if nbbins>nlength:
+                nlength = int(nbbins+0.20*nbbins)
+    if nlength!=length:
+        length = nlength
+        print(f'Warning: make_regions_order_revamp: new length={length}')
+
     wvl_regions, flux_regions, nmasks = [], [], []
     for order in range(len(flux)):
         idx = orders==order
@@ -538,3 +550,22 @@ def read_mask(file):
         ions.append(int(float(line.split()[4])))
     f.close()
     return wvls, labels, ions
+
+def find_optimal_order(regions, wvl):
+    orders = np.zeros(len(regions))
+    for ii, reg in enumerate(regions):
+        optorder = None
+        for order in range(len(wvl)):
+            _wvl = wvl[order]
+            ## Is this region in this order?
+            if (reg[0]>_wvl[0]) & (reg[1]<_wvl[-1]):
+                if optorder is None: 
+                    optorder=order; 
+                    optminval = min(reg[0]-_wvl[0], _wvl[-1]-reg[-1]) 
+                else: 
+                    minval = min(reg[0]-_wvl[0], _wvl[-1]-reg[-1]) 
+                    if minval>optminval:
+                        optorder = order
+                        optminval = min(reg[0]-_wvl[0], _wvl[-1]-reg[-1]) 
+        orders[ii] = optorder       
+    return orders
