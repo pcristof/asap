@@ -512,31 +512,84 @@ def fill_nans_wavelength(med_wvl):
                 next_low = 25000
                 new_med_wvl[r] = np.linspace(prev_high, next_low, len(new_med_wvl[r]), dtype=float)*np.nan
                 std = 1e-20 ## dummy value
-            if std>1e-6:
+            if std>1e-4:
                 import matplotlib.pyplot as plt
                 plt.figure()
-                plt.plot(med_wvl[r] - new_med_wvl[r])
+                plt.plot(new_med_wvl[r])
+                plt.plot(med_wvl[r], 'o')
                 plt.show()
                 print(f'STD = {std}')
                 raise Exception('Reconstructing wavelength solution: STD too high. Contact Author')
     ########################################## 
     return new_med_wvl
 
-def rebuilt_wavelength_v2(wave):
-    # med_diff is considered the typical sampling
-    med_diff = np.min(np.diff(wave[~np.isnan(wave)]))
-    nstart = 0
+# @jit(nopython=True)
+def rebuilt_wavelength(wave):
+    '''Function to rearange the wavelength solution.
+    The function loops through bins and shifts the solution to insert NaNs
+    in the middle of the wavelength solution.
+    CAUTION: assumes that input wavelengths are increasing'''
+
+    newwave = np.empty(len(wave)*10)*np.nan ## output array
+    nmaxbins = len(newwave)
+    rec_diff = np.nan ## considered delta_wvl at given step
+    indices = []
+    n=0
     for bin in range(len(wave)-1):
-        if np.isnan(wave[bin]):
+        ## Is the diff to come larger than the previous one?
+        diff = (wave[bin+1]-wave[bin])
+        update_rec_diff = True
+        ## append to array
+        if n>nmaxbins-1: break
+        newwave[n] = wave[bin]
+        indices.append(n)
+        n+=1
+        if np.isnan(diff):
+            pass
+        if diff<(.5*rec_diff): ## Problem
+            ## if True means first step larger than typical
+            ## The diff I consider is the previous one
+            thediff = rec_diff
+            ## Need to set typical to next step:
+            rec_diff = diff
+            ## Need to set diff to insert NaNs BEFORE the bin
+            n-=1
+            jump = int(np.floor(thediff/rec_diff))
+            ## Need to insert NaNs
+            n+=jump ## Move to next bin in output array
+        elif diff>(1.5*rec_diff):
+            ## How many bins do I need to insert?
+            jump = int(np.round(diff/rec_diff))-1
+            ## Need to insert NaNs
+            n+=jump ## Move to next bin in output array
+            # continue
+            update_rec_diff = False ## Change the reference wavelength
+        if update_rec_diff:
+            rec_diff = diff
+    return newwave, indices
+
+def rebuilt_wavelength_v2(wave):
+    new_wave = wave.copy()
+    # med_diff is considered the typical sampling
+    med_diff = np.min(np.diff(new_wave[~np.isnan(new_wave)]))
+    loc_diff = med_diff
+    nstart = 0
+    ## first, fill in the middle
+    for bin in range(len(new_wave)-1):
+        if np.isnan(new_wave[bin]): 
             nstart = bin+1
+            # pass
         else:
-            if np.isnan(wave[bin+1]):
-                wave[bin+1] = wave[bin]+med_diff
+            if np.isnan(new_wave[bin+1]):
+                new_wave[bin+1] = new_wave[bin]+loc_diff
+            else:
+                loc_diff = new_wave[bin+1]-new_wave[bin]
     if nstart>0:
+        loc_diff = new_wave[nstart+1]-new_wave[nstart]
         for bin in range(nstart, 0, -1):
-            if np.isnan(wave[bin-1]):
-                wave[bin-1] = wave[bin]-med_diff
-    return wave
+            if np.isnan(new_wave[bin-1]):
+                new_wave[bin-1] = new_wave[bin]-med_diff
+    return new_wave
 
 def fill_nans_wavelength_v2(med_wvl):
     '''
@@ -544,15 +597,19 @@ def fill_nans_wavelength_v2(med_wvl):
     Update Sep. 18, 2025: Change of rationale
     ASAP should no longer require wavelength to be evenly spaced, but does
     require non-nan, increasing wavelengths
-    fill_nans_wavelength_v2 will replace NaNs based median sampling '''
+    fill_nans_wavelength_v3_v2 will replace NaNs based median sampling '''
     ####################################
     if np.any(np.isnan(med_wvl)):
         ## Some people put NaNs in the wavelengths... don't ask.
         ## Here is a fix:
-        new_med_wvl = np.empty(med_wvl.shape)
+        new_med_wvl = np.empty((len(med_wvl), len(med_wvl[0])*10))
+        indices = []
         for r in range(len(med_wvl)):
-            new_med_wvl[r] = rebuilt_wavelength_v2(med_wvl[r])
+            ## Here I add NaN bins between wavelength jumps
+            new_med_wvl[r], idx = rebuilt_wavelength(med_wvl[r])
+            indices.append(idx)
     else:
         new_med_wvl = med_wvl
+        indices = np.array([np.arange(len(med_wvl[0])) for i in range(len(med_wvl))])
     ########################################## 
-    return new_med_wvl
+    return new_med_wvl, indices
