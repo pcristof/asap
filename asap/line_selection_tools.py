@@ -551,12 +551,15 @@ def read_mask(file):
     f.close()
     return wvls, labels, ions
 
-def find_optimal_order(regions, wvl):
+def find_optimal_order(regions, wvl, flx):
+    '''Function to find the optimal order based on distance to the edges
+    Function takes flx to avoid edges full of NaNs'''
     orders = np.zeros(len(regions))
     for ii, reg in enumerate(regions):
         optorder = None
         for order in range(len(wvl)):
-            _wvl = wvl[order]
+            _idx = ~np.isnan(flx[order])
+            _wvl = wvl[order][_idx]
             ## Is this region in this order?
             if (reg[0]>_wvl[0]) & (reg[1]<_wvl[-1]):
                 if optorder is None: 
