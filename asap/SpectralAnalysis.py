@@ -1307,8 +1307,8 @@ class SpectralAnalysis:
         ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
         ## That is a problem for us, so we complete it:
         if np.any(np.isnan(wvl)):
-            wvl = fill_nans_wavelength_v2(wvl)
-        
+            wvl = fill_nans_wavelength(wvl)
+
         ## Get a RV guess
         if self.guessRV:
             radvel = guess_vrad(wvl, template)
@@ -1533,7 +1533,13 @@ class SpectralAnalysis:
             print('Regions upper bound lower than lower bound on line(s) # {}'.format(np.array(idx)+1))
             exit()
 
-        from IPython import embed; embed()
+        ## TODO: test if this the automatic selection below is better or
+        ## equivalent to that relying on the blaze.
+        if self.instrument=='spirou':
+            from asap.line_selection_tools import find_optimal_order
+            if (len(med_wvl)<46) | (len(med_wvl)>49): ## The number of orders does not match SPIRou
+                ## Guess optimal errors based on where
+                orders = find_optimal_order(bounds, med_wvl, med_spectrum)
 
         ## Create regions for observed data and uncertainties    
         obs_wvl, obs_flux, masks= line_tools.make_regions_2d_orders(
