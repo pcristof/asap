@@ -19,11 +19,22 @@ def read_VO_fits(fname):
         try:
             data['err'] = np.array([da['FLUX_ERR']])
         except:
-            data['err'] = np.array([da['FLUX_NOR']])*0.01
+            data['err'] = np.sqrt(np.array([da['FLUX_NOR']]))
         try:
             data['snr'] = hdu[0].header['SNR_MAX']
         except:
             data['snr'] = hdu[0].header['DER_SNR']
+        ## Trying to compute uncertainties from typical SNR:
+        ## In the CONTINUUM -> SNR~sqrt(F) -> C=SNR**2
+        C = data['snr']**2
+        ## So we could get a "flux" such that:
+        F = data['flux']*C
+        ## But the flux is not normalized here... It was blaze corrected
+        ## so we need to adjust:
+        maxcont = np.nanpercentile(data['flux'], 99) 
+        ## And say, neglecting a lot of things, that the error is sqrt(F)
+        data['err'] = np.sqrt(F/maxcont)/C
+        ## Errors cannot be negative o
         ## What is the date of the observation?
         data['mjd'] = float(hdu[0].header['TMID'])
         data['jd'] = data['mjd']+2400000.5
@@ -112,6 +123,43 @@ def main():
             data['wave_2d'][i][:len(wave_2d_list[i])] = wave_2d_list[i]
             data['flux_2d'][i][:len(flux_2d_list[i])] = flux_2d_list[i]
             data['err_2d'][i][:len(err_2d_list[i])] = err_2d_list[i]
+
+        from asap.spectral_analysis_pack import rebuilt_wavelength
+        from asap.spectral_analysis_pack import rebuilt_wavelength_v2
+        from asap.spectral_analysis_pack import fill_nans_wavelength
+        from asap.spectral_analysis_pack import fill_nans_wavelength_v2
+
+        wvl = data['wave_2d']
+        flx = data['flux_2d']
+        err = data['err_2d']
+
+        new_wvl, indices = fill_nans_wavelength_v2(wvl)
+        new_med_spectrum = np.empty((len(new_wvl), len(new_wvl[0])))*np.nan
+        new_med_err = np.empty((len(new_wvl), len(new_wvl[0])))*np.nan
+        for r in range(len(new_med_spectrum)):
+            new_med_spectrum[r][indices[r]] = flx[r,:-1] 
+            new_med_err[r][indices[r]] = err[r, :-1] 
+        ## Delete NaNs that are on the right
+        myii = 0
+        for r in range(len(new_wvl)):
+            val = np.nan
+            ii = len(new_wvl[r])
+            while np.isnan(val):
+                ii-=1
+                val = new_wvl[r][ii]
+            if ii>myii:
+                myii=ii
+        new_wvl = new_wvl[:, :myii]
+        new_med_spectrum = new_med_spectrum[:, :myii]
+        new_med_err = new_med_err[:, :myii]
+
+        ## Now we need to actually fill the NaNs with values
+        for r in range(len(new_wvl)):
+            new_wvl[r] = rebuilt_wavelength_v2(new_wvl[r])
+
+        data['wave_2d'] = new_wvl
+        data['flux_2d'] = new_med_spectrum
+        data['err_2d'] = new_med_err
 
         header = fits.Header()
         header['AUTHOR'] = 'Your Name'
