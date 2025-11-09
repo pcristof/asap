@@ -39,6 +39,7 @@ setup(
             'asap.configure=asap.helper_tools:configure',  # Command-line utility
             'asap.gen_synth_obs=asap.scripts.gen_synth_obs:main',  # Command-line utility
             'asap.convert_ov_observations=asap.scripts.convert_ov_observations:main',
+            'asap.plot_corner=asap.scripts.plot_corner:main',
             # 'asap.run_analysis=asap.scripts.run_analysis:main',  # Command-line utility
         ],
     },
