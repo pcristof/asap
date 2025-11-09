@@ -3540,7 +3540,7 @@ class SpectralAnalysis:
                         self.teffs, self.loggs, self.mhs, self.alphas, self.vb,
                         self.rv, self.vsini, self.vmac, self.veilingFacToFit, 
                         self._T2, self.fillTeffs)
-            coeffsnomag = coeffs*0
+            coeffsnomag = self.coeffs*0
             coeffsnomag[0] = 1
             ## Here coeffs include the 0kG component
             fitnomag = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, 
