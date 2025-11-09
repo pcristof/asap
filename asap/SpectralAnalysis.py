@@ -3526,6 +3526,23 @@ class SpectralAnalysis:
                 mcmcsForLnLike_0kG = mcmcsForLnLike
             _  = self.lnlike(mcmcsForLnLike_0kG)
             minchi2exp = np.sum(self._res)
+        else:
+            ## Here coeffs include the 0kG component
+            fit = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, 
+                        self.nan_mask, self.nwvls, self.grid_n, 
+                        self.coeffs, self._T, self._L, self._M, self._A,
+                        self.teffs, self.loggs, self.mhs, self.alphas, self.vb,
+                        self.rv, self.vsini, self.vmac, self.veilingFacToFit, 
+                        self._T2, self.fillTeffs)
+            coeffsnomag = coeffs*0
+            coeffsnomag[0] = 1
+            ## Here coeffs include the 0kG component
+            fitnomag = self.gen_spec(self.obs_wvl, self.obs_flux, self.obs_err, 
+                        self.nan_mask, self.nwvls, self.grid_n, 
+                        coeffsnomag, self._T, self._L, self._M, self._A,
+                        self.teffs, self.loggs, self.mhs, self.alphas, self.vb,
+                        self.rv, self.vsini, self.vmac, self.veilingFacToFit, 
+                        self._T2, self.fillTeffs)
         #
         hdu = fits.PrimaryHDU()
         hdu.header['OBJECT'] = (self.star, 'object observed')
