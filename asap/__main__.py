@@ -243,7 +243,7 @@ print('Done loading grid')
 nwalkers    = SA.nwalkers
 nsteps      = SA.nsteps
 if ncores is None: ## If not we keep what we passed
-    ncores      = SA.ncores
+    ncores      = SA.set_ncores(ncores)
 # if not SA.parallel: ncores = 1
 
 # SA.set_nwalkers(nwalkers)
