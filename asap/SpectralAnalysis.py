@@ -2984,7 +2984,7 @@ class SpectralAnalysis:
             np.save(self.opath+"weights", samples)
 
             ## Sometimes we run into problems with latex. Let's check if latex is usable:
-            if shutil.which('latex'): self.latex = True
+            if shutil.which('latex'): self.latex = False
 
             ## Reasign        
             samples_noflat_0 = samples
