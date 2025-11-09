@@ -314,7 +314,10 @@ def moving_median_vel(Wm, Im,hws,btd=None, p=50):
         #     I_bin[k] = np.nan    
         # else:
         idx = ~np.isnan(r)
-        I_bin[k] = np.percentile(r[idx], p)  #Take median
+        if len(r[idx])==0:
+            I_bin[k] = np.nan
+        else:
+            I_bin[k] = np.percentile(r[idx], p)  #Take median
 
     ## Set borders to NaNs    
     I_bin[:btd] = np.nan
