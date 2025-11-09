@@ -1036,9 +1036,12 @@ class SpectralAnalysis:
         self.star = star.lower()
         # self.opath = 'output_{}/'.format(self.star)
     def set_ncores(self, ncores):
-        _ncores = int(ncores)
-        if _ncores<=1:
+        if ncores is None:
             _ncores = 1; self.parallel=False
+        else:
+            _ncores = int(ncores)
+            if _ncores<=1:
+                _ncores = 1; self.parallel=False
         self.ncores = _ncores
         return ncores
     def set_opath(self, opath):
