@@ -1037,7 +1037,7 @@ class SpectralAnalysis:
         # self.opath = 'output_{}/'.format(self.star)
     def set_ncores(self, ncores):
         _ncores = int(ncores)
-        if _ncores<1:
+        if _ncores<=1:
             _ncores = 1; self.parallel=False
         self.ncores = _ncores
         return ncores
