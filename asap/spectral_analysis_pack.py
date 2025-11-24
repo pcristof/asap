@@ -281,11 +281,16 @@ def broaden_spectra(args, **kwargs):
                                             vinstru=vinstru, 
                                             vsini=vsini, epsilon=0.6, 
                                             vmac=vmac, vmac_mode=macProf)
-
+        _wlim = _wvls[spectrum[r]!=0][-1]
+        _wlow = _wvls[0]
+        
         _wvl = _wvls
         _flux = _spectra
         # _spectrum = inte.fftintegrate(obs_wvl[r], _wvl, _flux)
         _spectrum = np.interp(obs_wvl[r], _wvl, _flux)
+        _spectrum[obs_wvl[r]>_wlim] = 0.
+        _spectrum[obs_wvl[r]<_wlow] = 0.
+
         # _spectrum = inte.integrate(obs_wvl[r], _wvl, _flux)
         # Adjust normalization 
         # _c, _ps = norm_tools.numba_fit_continuum_2(
