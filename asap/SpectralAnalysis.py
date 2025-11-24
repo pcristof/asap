@@ -2113,6 +2113,40 @@ class SpectralAnalysis:
         _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
                                                         macProf=self.vmacMode)
 
+        ############################################################
+        ###### TRY ANOTHER METHOD FOR CONTINUUM NORMALIZATION
+        args = [0, nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err, 
+                nan_mask, totvb, vmac, vsini, 
+                0, 0, 0, '0', False, 'line']
+        ## fit is the model after broadening and adjustment
+        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                        macProf=self.vmacMode)
+
+        # res = fit/obs_flux
+
+        # totbroad = np.sqrt(self.vinstru**2 + vb**2 
+        #                    + self.smoothSpectraVel**2 + vsini**2 + vmac**2)
+        # dlam = totbroad/(3*1e5)*obs_wvl[0][0]
+        # dbin = int(dlam/(obs_wvl[0][1]-obs_wvl[0][0]))
+
+        # conts = norm_tools.adjust_continuum7(obs_wvl, res, dbin)
+        # fit = fit/conts ## adjust continuum
+
+        # # plt.figure()
+        # # plt.plot(obs_wvl[i], res[i])
+        # # plt.plot(obs_wvl[i], c)
+        # # plt.show()
+
+        # # from IPython import embed;embed()
+        # plt.figure()
+        # # for i in range(len(i))
+        # # plt.plot(obs_wvl[:,idx].T, fit[:,idx].T)
+        # plt.plot(obs_wvl.T, res.T)
+        # plt.plot(obs_wvl.T, conts.T)
+        # # plt.plot(obs_wvl.T, obs_flux.T)
+        # plt.show()
+        ############################################################
+
         # ## Here we determine the correct veiling
         ## Here I forbid the veiling from the other bands to compensate for the veiling
         ## in the YJHK bands.
