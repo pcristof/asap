@@ -215,6 +215,148 @@ def adjust_continuum5(wvl, obs_flux, model_flux, p=50, window_size=None,
         # continuum = droite * model_flux
     return droite_model/droite_obs, [w_obs, p_obs, w_mod, p_mod], X, Xerr, X2, Xerr2
 
+@jit(nopython=True)
+def get_continuum_points(wvl_ini, flux_ini, window_size, p=95.0):
+    window_size = window_size / 2.0
+
+    mid_wvl = wvl_ini[0]
+    dvel_max = (wvl_ini[-1] - wvl_ini[0]) / mid_wvl * (2.99e5)
+
+    NPOINTS = int(round(dvel_max / window_size))
+    wvls = np.empty(NPOINTS + 1)
+    percentiles = np.empty(NPOINTS + 1)
+    wvls[:] = np.nan
+    percentiles[:] = np.nan
+
+    delta_lam = window_size / (2.99e5) * wvl_ini[0]
+    _ww = wvl_ini[0] + delta_lam
+    delta_lam = window_size / (2.99e5) * wvl_ini[0]
+
+    for i in range(NPOINTS):
+        mask = (wvl_ini > (_ww - delta_lam)) & (wvl_ini < (_ww + delta_lam))
+        r = flux_ini[mask]
+        if r.size == 0:
+            val = np.nan
+        else:
+            r_sorted = np.sort(r)
+            idx_p = int(p / 100.0 * (r_sorted.size - 1))
+            val = r_sorted[idx_p]
+        wvls[i] = _ww
+        percentiles[i] = val
+
+        _ww = _ww + 2.0 * delta_lam
+        delta_lam = window_size / (2.99e5) * _ww
+        if _ww > wvl_ini[-1]:
+            break
+
+    return wvls, percentiles
+
+@jit(nopython=True, cache=params.CACHE)
+def first_last_nonzero(arr):
+    first = -1
+    last = -1
+    for i in range(arr.size):
+        if arr[i] != 0:
+            if first == -1:
+                first = i
+            last = i
+    return first, last
+
+from asap import polyfit
+@jit(nopython=True, cache=params.CACHE)
+def adjust_continuum6(obs_wvl, res, dbin, p=50, window_size=None,
+                        degree=1, m=0.5, function='line', nWindows=6):
+    '''
+    adjust_continuum version 6 !
+    This time I simply fit a function to the residuals of the region.
+    Next we'll implement a more complex function shape.
+    '''
+
+    conts = np.ones_like(res)
+    nrows = res.shape[0]
+
+    for i in range(nrows):
+        _r = res[i]#.copy()  # copy since we’ll mask
+        first, last = first_last_nonzero(_r)
+
+        if first == -1 or last == -1:
+            conts[i] = np.nan
+            continue
+
+        # Mask edges
+        _r[:(first + dbin)] = np.nan
+        _r[(last - dbin):] = np.nan
+
+        idx = ~np.isnan(_r)
+        if np.sum(idx) < 4:
+            conts[i] = np.nan
+            continue
+
+        _w, _p = get_continuum_points(obs_wvl[i, idx], _r[idx], 50, p=50)
+        idx2 = ~np.isnan(_p*_w)
+        # _w_c = np.copy(_w) 
+        # _p_c = np.copy(_p)
+        # prevlen = len(_p[idx2]) 
+        KEEPGOING = True
+        counter = 0
+        # _std = np.std(_p[idx2])
+        while KEEPGOING:
+            # polyfit call (Numba-friendly)
+            A = polyfit.fit_1d_polynomial(
+                _w[idx2],
+                _p[idx2],
+                degree=3,
+                returnCovMat=False,
+                normalize_axes=True,
+            )
+            ## Compute continuum
+            x = polyfit.normalize_axis(obs_wvl[i], _w[idx2])
+            c = polyfit.poly1d(x, A)
+            c[~idx] = np.nan
+            conts[i] = c
+            ## Is continuum optimal?
+            ## -- Compute continuum at the _p
+            _x_ref = polyfit.normalize_axis(_w, _w[idx2])
+            _c_ref = polyfit.poly1d(_x_ref, A)
+            ## -- Find the max distance from continuum
+            _std = np.std(_p[idx2])
+            cond = (_p<(_c_ref-(_std))) | (_p>(_c_ref+(_std)))
+            if len(cond[cond])>0:
+                maxdist = _p**2==max(_p[cond]**2)
+                _p[maxdist] = np.nan
+                idx2 = ~np.isnan(_p)
+            else:
+                KEEPGOING=False
+                # _p[cond] = np.nan
+                ## This is the new idx2 mask
+                # idx2 = ~np.isnan(_p)
+                # if len(_p[idx2])==prevlen:
+                #     KEEPGOING=False
+                # else:
+                #     prevlen = len(_p[idx2])
+                if counter>10:
+                    print('WARNING - max iterations reached in '
+                        +'norm_tools.adjust_continuum6')
+                    KEEPGOING=False
+                counter=-1
+
+        ## PLOT FOR DEBUG
+        # # from IPython import embed;embed()
+        # import matplotlib.pyplot as plt
+        # plt.figure()
+        # plt.plot(obs_wvl[i, idx], _r[idx])
+        # plt.axhline(np.median(_p[idx2]))
+        # plt.plot(obs_wvl[i], c+_std)
+        # plt.plot(obs_wvl[i], c-_std)
+        # plt.plot(_w_c, _p_c, '.')
+        # plt.plot(_w[idx2], _p[idx2], 'x')
+        # plt.plot(obs_wvl[i, idx], c[idx])
+        # plt.show()
+        # plt.close()
+
+
+    return conts
+
 @jit(nopython=True, cache=params.CACHE)
 def moving_median(Im,hws,btd=None, p=50):    
     """
