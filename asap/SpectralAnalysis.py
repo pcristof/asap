@@ -2115,12 +2115,12 @@ class SpectralAnalysis:
 
         ############################################################
         ###### TRY ANOTHER METHOD FOR CONTINUUM NORMALIZATION
-        args = [0, nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err, 
-                nan_mask, totvb, vmac, vsini, 
-                0, 0, 0, '0', False, 'line']
-        ## fit is the model after broadening and adjustment
-        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-                                                        macProf=self.vmacMode)
+        # args = [0, nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err, 
+        #         nan_mask, totvb, vmac, vsini, 
+        #         0, 0, 0, '0', False, 'line']
+        # ## fit is the model after broadening and adjustment
+        # _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+        #                                                 macProf=self.vmacMode)
 
         # res = fit/obs_flux
 
