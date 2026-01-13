@@ -1264,7 +1264,7 @@ class SpectralAnalysis:
             filename = filename.replace('gl', 'gj')
             self.star = self.star.replace('gl', 'gj')
         ## Open fits file
-        mode = 'p.fits'
+        mode = 'poloformat'
         ## Resoving file type:
         if "p.fits" in filename:
             ## Check that the file is compatible with the file format
