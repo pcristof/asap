@@ -4,6 +4,7 @@ import numpy as np
 from numba import jit
 from asap import analysis_tools as tls
 from asap import effects as effects
+from asap.c_tools import effects as effects_cy
 from asap import normalization_tools as norm_tools
 from asap import polyfit
 from numba import types
@@ -277,10 +278,15 @@ def broaden_spectra(args, **kwargs):
         #     vsini=vsini, vmac=vmac, 
         #     vinstru = vinstru
         #     )
-        _spectra = effects.broaden_spectrum_2(_wvls, spectrum[r], 
+        # _spectra = effects.broaden_spectrum_2(_wvls, spectrum[r], 
+        #                                     vinstru=vinstru, 
+        #                                     vsini=vsini, epsilon=0.6, 
+        #                                     vmac=vmac, vmac_mode=macProf)
+        ## Faster with cython:
+        _spectra = effects_cy.broaden_spectrum_2_cy(_wvls, spectrum[r], 
                                             vinstru=vinstru, 
                                             vsini=vsini, epsilon=0.6, 
-                                            vmac=vmac, vmac_mode=macProf)
+                                            vmac=vmac, vmac_mode=macProf)      
         _wlim = _wvls[spectrum[r]!=0][-1]
         _wlow = _wvls[0]
         

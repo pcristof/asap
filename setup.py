@@ -16,6 +16,12 @@ extensions = [
         sources=["asap/c_tools/normalization_tools.pyx"],
         include_dirs=[np.get_include()],
         extra_compile_args=["-O3"],
+    ),
+    Extension(
+        name="asap.c_tools.effects",
+        sources=["asap/c_tools/effects.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=["-O3"],
     )
 ]
 
