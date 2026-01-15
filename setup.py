@@ -1,5 +1,24 @@
 from setuptools import setup, find_packages
 
+from setuptools import setup, Extension
+from Cython.Build import cythonize
+import numpy as np
+
+extensions = [
+    Extension(
+        name="asap.c_tools.interpolate_4d",
+        sources=["asap/c_tools/interpolate_4d.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=["-O3"],
+    ),
+    Extension(
+        name="asap.c_tools.normalization_tools",
+        sources=["asap/c_tools/normalization_tools.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=["-O3"],
+    )
+]
+
 setup(
     name='asap',
     version='0.1',    # Initial version
@@ -48,4 +67,8 @@ setup(
         'License :: OSI Approved :: MIT License',
         'Operating System :: OS Independent',
     ],
+    ext_modules=cythonize(
+        extensions,
+        compiler_directives={"language_level": "3"},
+    ),
 )
