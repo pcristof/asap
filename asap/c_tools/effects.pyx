@@ -257,7 +257,7 @@ def rt_macro_cy(double velocity_step, double vmac):
     cdef int dski, ju, count
     cdef double dskri, ritot = itot, dskr, area, scale
     cdef int nk
-    cdef np.ndarray[np.float64_t, ndim=1] kernel, 
+    cdef np.ndarray[np.float64_t, ndim=1] kernel
     cdef double[:] subkern
     cdef double[:] kview, skview
     cdef int i
