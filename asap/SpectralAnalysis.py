@@ -36,6 +36,7 @@ from asap import params
 from asap import analysis_tools as tls
 from asap import line_selection_tools as line_tools
 from asap.spectral_analysis_pack import wrap_function_fine_linear_4d
+from asap.c_tools.interpolate_4d import wrap_interpolate_4d_opt  as wrap_interpolate_4d_c
 from asap.spectral_analysis_pack import broaden_spectra
 from asap.spectral_analysis_pack import veiling_function
 from asap import effects as effects
@@ -318,7 +319,7 @@ class SpectralAnalysis:
     def __init__(self, **kargs):
         self.message = "Output message to the user\n"
         self.dynesty = False
-        self.teffs = np.arange(2700, 4000, 100); 
+        self.teffs = np.arange(2700., 4000., 100.); 
         self.loggs = np.arange(4.0, 6., .5)
         self.mhs = np.arange(-1.0, 1.0, .5); 
         self.alphas = np.arange(-0.25, 0.75, .25); 
@@ -698,7 +699,7 @@ class SpectralAnalysis:
         elif len(_Tarray.split())!=3: 
             raise Exception("config: teffArray specifications not understood")
         else:
-            _array = [int(float(_Tarray.split()[i])) for i in range(3)]
+            _array = [float(_Tarray.split()[i]) for i in range(3)]
             teffarray = np.arange(_array[0], _array[1]+_array[2], _array[2])
         if "none" in _Larray.lower(): _Larray = None
         elif len(_Larray.split())!=3: 
@@ -1619,7 +1620,7 @@ class SpectralAnalysis:
         # '{}g{:0.1f}z{:0.2f}a{:.2f}b{:04.0f}p{:0.1f}rot{:0.2f}beta{:0.2f}.hdf5'
         variables = {}
         tmpname = fname.split('g')
-        variables['teff'] = int(float(tmpname[0]))
+        variables['teff'] = float(tmpname[0])
         tmpname = fname.split('g')[1].split('z')
         variables['logg'] = float(tmpname[0])
         tmpname = fname.split('z')[1].split('a')
@@ -1695,7 +1696,8 @@ class SpectralAnalysis:
         
         ntot = self.d1*self.d2*self.d3*self.d4*self.d5
         n = 0
-        for it, teff in enumerate(self.teffs):
+        teffs_int = np.array(self.teffs, dtype=int)
+        for it, teff in enumerate(teffs_int):
             for il, logg in enumerate(self.loggs):
                 for im, mh in enumerate(self.mhs):
                     for ia, alpha in enumerate(self.alphas):
@@ -2046,11 +2048,19 @@ class SpectralAnalysis:
 
         for i in range(self.d5):
             try:
-                _, s = wrap_function_fine_linear_4d(
+                # _, s = wrap_function_fine_linear_4d(
+                #                                     T, L, M, A,
+                #                                     teffs, loggs, mhs, alphas,
+                #                                     grid_n[i], 
+                #                                     function=self.interpFunc)
+                ## MODE defines if linear or log: This function is a little 
+                ## faster than the previous one. It will allow for better 
+                ## integration in a full cython logic.
+                _, s = wrap_interpolate_4d_c(
                                                     T, L, M, A,
                                                     teffs, loggs, mhs, alphas,
                                                     grid_n[i], 
-                                                    function=self.interpFunc)
+                                                    0)
                 # s = grid_n[i][0,0,0,0]
             except:
                 raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
