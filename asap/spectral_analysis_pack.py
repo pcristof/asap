@@ -6,6 +6,7 @@ from asap import analysis_tools as tls
 from asap import effects as effects
 from asap.c_tools import effects as effects_cy
 from asap import normalization_tools as norm_tools
+from asap.c_tools import normalization_tools as norm_tools_cy
 from asap import polyfit
 from numba import types
 from numba.typed import Dict
@@ -318,12 +319,26 @@ def broaden_spectra(args, **kwargs):
             # config = read_config()
             # p = int(float(config['OPTIONS']['P']))
             # try:
-            _c, _pss, X, Xerr, X2, X2err = norm_tools.adjust_continuum5(wvl=obs_wvl[r],
+
+            # _c, _pss, X, Xerr, X2, X2err = norm_tools.adjust_continuum5(wvl=obs_wvl[r],
+            #                                     obs_flux=obs_flux[r],
+            #                                     model_flux=_spectrum,
+            #                                     window_size=100,
+            #                                     p=90,
+            #                                     degree=1, m=0.05, function=function)
+            ## Implementation in Cython, faster and possibly better.
+            _c, wave_points, obs_points, mod_points = norm_tools_cy.adjust_continuum5_fast_inplace(wvl=obs_wvl[r],
                                                 obs_flux=obs_flux[r],
                                                 model_flux=_spectrum,
-                                                window_size=100,
                                                 p=90,
-                                                degree=1, m=0.05, function=function)
+                                                nWindows = 6)
+            
+            _pss = [0,0,0,0]
+            X = np.array([0,0])
+            Xerr = np.array([0,0])
+            X2 = np.array([0,0])
+            X2err = np.array([0,0])
+
             if len(X)==1:
                 X = np.array([0, X[0]])
                 Xerr = np.array([0, Xerr[0]])
