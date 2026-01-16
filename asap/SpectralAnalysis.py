@@ -38,6 +38,7 @@ from asap import line_selection_tools as line_tools
 from asap.spectral_analysis_pack import wrap_function_fine_linear_4d
 from asap.c_tools.interpolate_4d import wrap_interpolate_4d_opt  as wrap_interpolate_4d_c
 from asap.spectral_analysis_pack import broaden_spectra
+from asap.c_tools.spectral_broadening import broaden_spectra_cy
 from asap.spectral_analysis_pack import veiling_function
 from asap import effects as effects
 import time
@@ -2120,8 +2121,11 @@ class SpectralAnalysis:
                 nan_mask, totvb, vmac, vsini, 
                 0, 0, 0, '0', self.adjcont, 'line']
         ## fit is the model after broadening and adjustment
-        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-                                                        macProf=self.vmacMode)
+        # _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+        #                                                 macProf=self.vmacMode)
+        ## New cython implementation should be faster
+        fit = broaden_spectra_cy(nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err,
+                           totvb,vmac,vsini,0.,self.adjcont,self.vmacMode)
 
         ############################################################
         ###### TRY ANOTHER METHOD FOR CONTINUUM NORMALIZATION

@@ -61,9 +61,9 @@ cdef double mean_fast(double[:] arr):
 @cython.boundscheck(False)
 @cython.wraparound(False)
 def adjust_continuum5_fast_inplace(
-    np.ndarray[DTYPE_t, ndim=1] wvl,
-    np.ndarray[DTYPE_t, ndim=1] obs_flux,
-    np.ndarray[DTYPE_t, ndim=1] model_flux,
+    double[:] wvl,
+    double[:] obs_flux,
+    double[:] model_flux,
     double p = 50.0,
     int nWindows = 6
     ):

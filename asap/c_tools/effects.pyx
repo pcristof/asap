@@ -295,20 +295,22 @@ def rt_macro_cy(double velocity_step, double vmac):
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
-def broaden_spectrum_2_cy(np.ndarray[np.float64_t, ndim=1] wvl,
-                           np.ndarray[np.float64_t, ndim=1] flux,
-                           double vinstru=0.0,
-                           double vsini=0.0,
-                           double epsilon=0.6,
-                           double vmac=0.0,
-                           vmac_mode='g'):
+def broaden_spectrum_2_cy(
+    double[:] wvl,
+    double[:] flux,
+    double vinstru=0.0,
+    double vsini=0.0,
+    double epsilon=0.6,
+    double vmac=0.0,
+    vmac_mode='g'
+    ):
     """
     Fast Cython version of broaden_spectrum_2
     Returns np.ndarray same length as flux
     """
 
     cdef int n = flux.shape[0]
-    cdef np.ndarray[np.float64_t, ndim=1] output = flux.copy()
+    cdef np.ndarray[np.float64_t, ndim=1] output = np.empty(n)
     cdef double[:] oflux = output  # memoryview for speed
 
     cdef int pad_left
@@ -321,7 +323,11 @@ def broaden_spectrum_2_cy(np.ndarray[np.float64_t, ndim=1] wvl,
     cdef double vel_step
     cdef double sigma_gauss
     cdef double vmacGauss, vmacRT
-    cdef int len_master
+    cdef int len_master, i
+
+    ## Initialize output:
+    for i in range(n):
+        output[i] = flux[i]
 
     # --- Determine vmac mode ---
     vmacMode = vmac_mode.lower()

@@ -29,6 +29,12 @@ extensions = [
         include_dirs=[np.get_include()],
         extra_compile_args=["-O3"],
     ),
+    Extension(
+        name="asap.c_tools.spectral_broadening",
+        sources=["asap/c_tools/spectral_broadening.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=["-O3"],
+    ),
 ]
 
 setup(
