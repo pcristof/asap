@@ -6,6 +6,12 @@ import numpy as np
 
 extensions = [
     Extension(
+        name="asap.c_tools.linsolve",
+        sources=["asap/c_tools/linsolve.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=["-O3"],
+    ),
+    Extension(
         name="asap.c_tools.interpolate_4d",
         sources=["asap/c_tools/interpolate_4d.pyx"],
         include_dirs=[np.get_include()],
@@ -22,7 +28,7 @@ extensions = [
         sources=["asap/c_tools/effects.pyx"],
         include_dirs=[np.get_include()],
         extra_compile_args=["-O3"],
-    )
+    ),
 ]
 
 setup(
