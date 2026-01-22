@@ -1665,6 +1665,186 @@ class SpectralAnalysis:
     #### ---- LOAD MODEL GRID ---- ####
     ###################################
     def load_grid(self, pathtogrid, regions):
+        if pathtogrid[-1]!='/': pathtogrid+='/'
+
+        ## Need to define the grid type:
+        if os.path.isfile(pathtogrid+'grid.info'):
+            with open(pathtogrid+'grid.info', 'r') as f:
+                grid_data = {}
+                for line in f.readlines():
+                    if line.strip()=='': continue
+                    sl = line.split()
+                    grid_data[sl[0]] = sl[1]
+            gridType = grid_data['gridType']
+        else:
+            gridType = 'unknown'
+        if gridType=='PCA_COMPRESSED':
+            nwvls = self.load_pca_compressed(pathtogrid, grid_data, regions)
+        else:
+            o = self.load_grid_oldstyle(pathtogrid, regions)
+            nwvls = o[0]
+
+        return nwvls, self.grid_n, self.teffs, self.loggs, self.mhs, self.alphas
+
+    def load_pca_compressed(self, pathtogrid, grid_data, regions):
+        ## Subset of files to read
+        subsets = grid_data['subsets'].split(',')
+        ## Check grid dimensions:
+        with h5py.File(pathtogrid+subsets[0], "r") as f:
+            _t = f["teffs"][:] 
+            _l = f["loggs"][:] 
+            _m = f["mhs"][:] 
+            _a = f["alphas"][:] 
+        ## Check they are the same everywhere:
+        for subset in subsets:
+            with h5py.File(pathtogrid+subset, "r") as f:
+                _teffs = f["teffs"][:] 
+                _loggs = f["loggs"][:] 
+                _mhs = f["mhs"][:] 
+                _alphas = f["alphas"][:] 
+                if np.any(_teffs!=_t): raise Exception('Grid dimensions differ')
+                if np.any(_loggs!=_l): raise Exception('Grid dimensions differ')
+                if np.any(_mhs!=_m): raise Exception('Grid dimensions differ')
+                if np.any(_alphas!=_a): raise Exception('Grid dimensions differ')
+        
+        ## Based on request and grid dimensions, choose the indices to keep:
+        ## Adjust arrays so that we take the true values in the grid 
+        ## and only use the min and max
+        _tl = self.teffs[0];_th = self.teffs[-1]
+        idx_teff = (_t>=_tl) & (_t<=_th)
+        self.teffs = _t[idx_teff]
+        _ll = self.loggs[0];_lh = self.loggs[-1]
+        idx_logg = (_l>=_ll) & (_l<=_lh)
+        self.loggs = _l[idx_logg]
+        _ml = self.mhs[0];_mh = self.mhs[-1]
+        idx_mh = (_m>=_ml) & (_m<=_mh)
+        self.mhs = _m[idx_mh]
+        _al = self.alphas[0];_ah = self.alphas[-1]
+        idx_alpha = (_a>=_al) & (_a<=_ah)
+        self.alphas = _a[idx_alpha]
+
+        ## Check they are the same everywhere:
+        _b = []
+        mean_spectra = []
+        basis = []
+        coeffs = []
+        wvls = []
+        for subset in subsets:
+            print(f'Reading {subset}')
+            with h5py.File(pathtogrid+subset, "r") as f:
+                _bval = f.attrs["BVAL"]
+                if _bval not in self.bs: continue
+                ## Otherwise read it all
+                _b.append(f.attrs["BVAL"])
+                _wave = f["wave"][:]
+                _mean = f["mean_spectrum"][:]       # (Nλ,)
+                _basis = f["basis"][:]                       # (K, Nλ)
+                g = f["coeffs"][idx_teff, :, :, :, :]
+                g = g[:, idx_logg, :, :, :]
+                g = g[:, :, idx_mh, :, :]
+                g = g[:, :, :, idx_alpha, :]
+                _coeffs = g   # (K,)
+                wvls.append(_wave)
+                mean_spectra.append(_mean)
+                basis.append(_basis)
+                coeffs.append(_coeffs)
+
+        _b = np.array(_b)
+        self.update_bs(_b)
+        self.get_grid_dims() ## Update the fundamental grid dimensions
+
+        wvls = np.array(wvls)
+        coeffs = np.array(coeffs)
+        basis = np.array(basis)
+        mean_spectra = np.array(mean_spectra)
+
+        ## Sort by magnetic field value
+        idxsort = np.argsort(_b)
+        _b = _b[idxsort]
+        wvls = wvls[idxsort]
+        coeffs = coeffs[idxsort]
+        basis = basis[idxsort]
+        mean_spectra = mean_spectra[idxsort]
+
+        w = tls.convert_lambda_in_vacuum(wvls[0])
+
+        ## Now we want to reconstruct the spectra and create the regions
+        wgrid = np.zeros((self.d1, self.d2, self.d3, 
+                    self.d4, self.d5, self.d6)).tolist()
+        wvls = np.zeros((self.d6)).tolist()
+        grid = np.zeros([self.d1, self.d2, self.d3, 
+                          self.d4, self.d5, self.d6]).tolist()
+
+        ntot = self.d1*self.d2*self.d3*self.d4*self.d5
+        n = 0
+        teffs_int = np.array(self.teffs, dtype=int)
+        for it, teff in enumerate(teffs_int):
+            for il, logg in enumerate(self.loggs):
+                for im, mh in enumerate(self.mhs):
+                    for ia, alpha in enumerate(self.alphas):
+                        for ib, B in enumerate(self.bs):
+                            ## Construct the spectrum
+                            s = coeffs[ib,it,il,im,ia] @ basis[ib] + mean_spectra[ib]
+                            _wvl, _spectrum = line_tools.make_contrained_regions(w, 
+                                                            s, 
+                                                            regions)
+                            interupt = False
+                            for _r in range(len(_wvl)):
+                                if len(_wvl)==0:
+                                    interupt = True
+                                    print('Problem: line list requested in the region {} but no model found there.'.format(regions[_r]))
+                            if interupt:
+                                exit(1)
+                            # We add an option to resample the grid on a 
+                            # wavelength solution constant in speed.
+                            if self.resampleVel:
+                                for ir in range(len(regions)):
+                                    _wvl[ir], _spectrum[ir] = \
+                                    tls.resample_vel_interp(_wvl[ir], _spectrum[ir], kind='cubic')
+                            #
+                            for ir in range(len(regions)):
+                                wgrid[it][il][im][ia][ib][ir] = _wvl[ir]
+                                grid[it][il][im][ia][ib][ir] = _spectrum[ir]
+                                wvls[ir] = _wvl[ir]
+                            n += 1
+                            stat = n / ntot * 100
+                            print("Reading... {:0.2f} %".format(stat), 
+                                                            end='\r')
+        ## Get the length of the arrays need to store the regions
+        maxlen = 0
+        wvls = wgrid[0][0][0][0][0]
+        for r in range(len(wvls)):
+            _len = len(wvls[r])
+            if _len > maxlen:
+                maxlen = _len
+        self.d7 = maxlen
+        ## Prepare numpy array of correct size
+        nwvls = np.zeros((self.d6, self.d7))
+        nspectra = np.zeros((self.d1, self.d2, self.d3, self.d4, 
+                             self.d5, self.d6, self.d7))
+        for it, teff in enumerate(self.teffs):
+            for il, logg in enumerate(self.loggs):
+                for im, mh in enumerate(self.mhs):
+                    for ia, alpha in enumerate(self.alphas):
+                        for ib, B in enumerate(self.bs):
+                            for r in range(len(regions)):
+                                _maxlen = len(grid[it][il][im][ia][ib][r])
+                                _dwvls = wvls[r][-1] - wvls[r][-2]
+                                _wvls = np.arange(maxlen) * _dwvls + wvls[r][0]
+                                try:
+                                    _wvls[:_maxlen] = wvls[r]
+                                    nwvls[r] = _wvls
+                                except:
+                                    raise Exception("Pb with {} {} {} {} {}".format(teff, logg, mh, alpha, B))
+                                nspectra[it, il, im, ia, ib, r][:_maxlen] = grid[it][il][im][ia][ib][r]
+
+        grid = np.array(nspectra, dtype=float)
+        self.grid_n = np.moveaxis(grid, -3, 0) ## Place magnetic field as first index
+        self.nwvls = nwvls
+        print('Done grid')
+        return nwvls
+
+    def load_grid_oldstyle(self, pathtogrid, regions):
         '''Load a grid of models for all mag field strengths'''
         ## Ensures the path ends with a '/'
         if pathtogrid[-1]!='/': pathtogrid+='/'
@@ -1687,6 +1867,8 @@ class SpectralAnalysis:
                        +"bypassing user requested grid"
         self.message += message_line
         print(message_line)
+        ## Make sure you get the new grid dimensions:
+        self.get_grid_dims()
         ## Read this grid
         print('Loading grid')
         wgrid = np.zeros((self.d1, self.d2, self.d3, 
@@ -2124,8 +2306,14 @@ class SpectralAnalysis:
         # _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
         #                                                 macProf=self.vmacMode)
         ## New cython implementation should be faster
-        fit = broaden_spectra_cy(nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err,
+        fit, _c = broaden_spectra_cy(nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err,
                            totvb,vmac,vsini,0.,self.adjcont,self.vmacMode)
+        
+        # plt.figure()
+        # plt.plot(obs_wvl.T, obs_flux.T, color='k')
+        # plt.plot(obs_wvl.T, (fit*_c).T, '--', color='r')
+        # plt.plot(obs_wvl.T, (fit).T, '--', color='r')
+        # plt.show()
 
         ############################################################
         ###### TRY ANOTHER METHOD FOR CONTINUUM NORMALIZATION
