@@ -10,7 +10,7 @@ ctypedef Py_ssize_t ITYPE_t
 
 # Assume these Cython functions exist and are cpdef/cdef
 from asap.c_tools.effects import broaden_spectrum_2_cy
-from asap.c_tools.normalization_tools import adjust_continuum5_fast_inplace
+from asap.c_tools.normalization_tools import adjust_continuum5_fast_inplace, adjust_continuum6_fast_inplace
 
 # cython: boundscheck=False, wraparound=False, cdivision=True
 from libc.math cimport sqrt
@@ -158,6 +158,7 @@ def broaden_spectra_cy(
 
     # Output preallocated
     cdef np.ndarray[DTYPE_t, ndim=2] output = np.zeros((nregions, npts_obs), dtype=np.float64)
+    cdef np.ndarray[DTYPE_t, ndim=2] output_c = np.zeros((nregions, npts_obs), dtype=np.float64)
 
     # Compute doppler factor once
     doppler_factor = doppler_cy(-vrad)
@@ -228,6 +229,9 @@ def broaden_spectra_cy(
                 model_flux=_spectrum_b_interp,
                 p=90,
                 nWindows=6)
+            # _c = adjust_continuum6_fast_inplace(obs_wvl_mv[r], 
+            #                                     obs_flux_mv[r], 
+            #                                     _spectrum_b_interp)
         else:
             # preallocate _c as memoryview
             _c = np.empty(npts_obs, dtype=np.float64)
@@ -240,5 +244,6 @@ def broaden_spectra_cy(
 
         # Save to output
         output[r] = _spectrum_b_interp
+        output_c[r] = _c
 
-    return output
+    return output, output_c
