@@ -129,3 +129,234 @@ def adjust_continuum5_fast_inplace(
 
 
     return result, wave_points, obs_points, mod_points
+
+# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+#                               NEXT METHOD
+# -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+
+# cython: boundscheck=False, wraparound=False, cdivision=True
+
+# ctypedef np.float64_t DTYPE_t
+# ctypedef Py_ssize_t ITYPE_t
+
+# -----------------------------
+# Normalization
+# -----------------------------
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def normalize_axis_cy(
+    double[:] a, 
+    double[:] b
+    ):
+    cdef ITYPE_t n = b.shape[0]
+    cdef DTYPE_t mean_b = 0.
+    cdef DTYPE_t min_b = b[0]
+    cdef DTYPE_t max_b = b[0]
+    cdef ITYPE_t i
+    cdef double[:] out = np.empty(a.shape[0], dtype=np.float64)
+    
+    # Compute mean, min, max of b
+    for i in range(n):
+        mean_b += b[i]
+        if b[i] < min_b:
+            min_b = b[i]
+        elif b[i] > max_b:
+            max_b = b[i]
+    mean_b /= n
+
+    for i in range(a.shape[0]):
+        out[i] = (a[i] - mean_b) / (max_b - min_b)
+
+    return out
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def revert_normalize_axis_cy(
+    np.ndarray[DTYPE_t, ndim=1] a, 
+    np.ndarray[DTYPE_t, ndim=1] b):
+    cdef ITYPE_t n = b.shape[0]
+    cdef DTYPE_t mean_b = 0.
+    cdef DTYPE_t min_b = b[0]
+    cdef DTYPE_t max_b = b[0]
+    cdef ITYPE_t i
+    cdef np.ndarray[DTYPE_t, ndim=1] out = np.empty(a.shape[0], dtype=np.float64)
+
+    for i in range(n):
+        mean_b += b[i]
+        if b[i] < min_b:
+            min_b = b[i]
+        elif b[i] > max_b:
+            max_b = b[i]
+    mean_b /= n
+
+    for i in range(a.shape[0]):
+        out[i] = a[i] * (max_b - min_b) + mean_b
+
+    return out
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def fit_1d_polynomial_cy(double[:] x, double[:] y, int degree=3, bint normalize_axes=False):
+    """
+    Fit 1D polynomial using memoryviews only (no NumPy).
+    Returns coefficients from highest degree to constant term.
+    """
+    cdef ITYPE_t n = x.shape[0]
+    cdef ITYPE_t i, j, k
+    cdef double[:] xx = x
+
+    # Normalize if needed
+    if normalize_axes:
+        xx = normalize_axis_cy(x, x)  # should also return memoryview
+
+    cdef ITYPE_t d = degree
+    cdef double[:, ::1] X = cython.view.array(shape=(n, d+1), itemsize=8, format="d", mode="c")  # Vandermonde
+
+    # Build Vandermonde matrix
+    for i in range(n):
+        X[i,0] = 1.0
+        for j in range(1, d+1):
+            X[i,j] = X[i,j-1] * xx[i]
+
+    # Compute X^T X (size (d+1, d+1)) and X^T Y (size d+1)
+    cdef double[:, ::1] XTX = cython.view.array(shape=(d+1, d+1), itemsize=8, format="d", mode="c")
+    cdef double[:] XTY = cython.view.array(shape=(d+1,), itemsize=8, format="d", mode="c")
+    cdef double sum_val
+
+    for i in range(d+1):
+        for j in range(d+1):
+            sum_val = 0.0
+            for k in range(n):
+                sum_val += X[k,i] * X[k,j]
+            XTX[i,j] = sum_val
+
+    for i in range(d+1):
+        sum_val = 0.0
+        for k in range(n):
+            sum_val += X[k,i] * y[k]
+        XTY[i] = sum_val
+
+    # Solve linear system XTX * A = XTY via Gauss elimination
+    cdef double[:] A = cython.view.array(shape=(d+1,), itemsize=8, format="d", mode="c")
+    cdef ITYPE_t row, col
+    cdef double factor, temp
+
+    # Copy XTX and XTY to avoid modifying original (optional)
+    cdef double[:, ::1] M = cython.view.array(shape=(d+1, d+1), itemsize=8, format="d", mode="c")
+    cdef double[:] B = cython.view.array(shape=(d+1,), itemsize=8, format="d", mode="c")
+    for i in range(d+1):
+        B[i] = XTY[i]
+        for j in range(d+1):
+            M[i,j] = XTX[i,j]
+
+    # Gaussian elimination
+    for i in range(d+1):
+        # Pivoting
+        temp = M[i,i]
+        if temp == 0.0:
+            raise ValueError("Singular matrix in polynomial fit")
+        for j in range(i+1, d+1):
+            factor = M[j,i] / M[i,i]
+            for k in range(i, d+1):
+                M[j,k] -= factor * M[i,k]
+            B[j] -= factor * B[i]
+
+    # Back substitution
+    for i in range(d, -1, -1):
+        sum_val = B[i]
+        for j in range(i+1, d+1):
+            sum_val -= M[i,j] * A[j]
+        A[i] = sum_val / M[i,i]
+
+    return A
+
+# cython: boundscheck=False, wraparound=False, cdivision=True
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def poly1d_horner(double[:] x,
+                  double[:] coeffs,
+                  bint normalize_axes=False,
+                  np.ndarray[DTYPE_t, ndim=1] normalize_range=None):
+    """
+    Evaluate a polynomial using Horner's method.
+    - x: points to evaluate (1D array)
+    - coeffs: polynomial coefficients (highest degree first)
+    - normalize_axes: if True, normalize x
+    - normalize_range: optional range for normalization
+    """
+    cdef ITYPE_t n = x.shape[0]
+    cdef ITYPE_t degree = coeffs.shape[0] - 1
+    cdef np.ndarray[DTYPE_t, ndim=1] out = np.empty(n, dtype=np.float64)
+    cdef double[:] xnorm = x
+    cdef ITYPE_t i, j
+    cdef DTYPE_t val
+
+    # Optional normalization
+    if normalize_axes:
+        if normalize_range is None:
+            xnorm = (x - np.mean(x)) / (np.max(x) - np.min(x))
+        else:
+            xnorm = (x - np.mean(normalize_range)) / (np.max(normalize_range) - np.min(normalize_range))
+
+    # Memoryviews for speed
+    cdef DTYPE_t[:] x_mv = xnorm
+    cdef DTYPE_t[:] c_mv = coeffs
+    cdef DTYPE_t[:] out_mv = out
+
+    # Horner's method
+    for i in range(n):
+        val = c_mv[0]
+        for j in range(1, degree+1):
+            val = val * x_mv[i] + c_mv[j]
+        out_mv[i] = val
+
+    return out
+
+# ---- Main function ----
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def adjust_continuum6_fast_inplace(
+    double[:] wvl,
+    double[:] obs_flux,
+    double[:] model_flux,
+    double p = 50.0,
+    int nWindows = 6
+    ):
+    cdef ITYPE_t N = obs_flux.shape[0]
+    cdef ITYPE_t window_size = N // nWindows
+    cdef ITYPE_t i, j, idx, nb_nan, new_N
+
+    cdef double[:] coeffs
+    # for i in range(N):
+    #     obs_view[i] = obs_flux[i]  # simple fast copy
+    #     mod_view[i] = model_flux[i]  # simple fast copy
+    #     wvl_view[i] = wvl[i]  # simple fast copy
+    ## Count NaNs:
+    nb_nan = 0
+    for i in range(N):
+        if obs_flux[i]!=obs_flux[i]: ## Is a NaN
+            nb_nan+=1
+    new_N = N-nb_nan    
+
+    ## New arrays with only non-NaN elements:
+    cdef double[:] wvl_view = np.empty(new_N, dtype=np.float64)
+    cdef double[:] residuals = np.empty(new_N, dtype=np.float64)
+    cdef double[:] wvl_norm = np.empty(new_N)
+    cdef np.ndarray[DTYPE_t, ndim=1] continuum = np.empty(new_N)
+    j = 0
+    for i in range(N):
+        if not obs_flux[i]!=obs_flux[i]:
+            wvl_view[j] = wvl[i]
+            # obs_view[j]=obs_flux[i]
+            residuals[j]=model_flux[i]/obs_flux[i]
+            j+=1
+            
+    wvl_norm = normalize_axis_cy(wvl_view, wvl_view)
+    coeffs = fit_1d_polynomial_cy(wvl_norm, residuals, 5)
+
+    continuum = poly1d_horner(wvl_norm, coeffs[::-1])
+
+    return continuum
