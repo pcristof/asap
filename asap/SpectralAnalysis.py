@@ -2642,11 +2642,11 @@ class SpectralAnalysis:
                 nan_mask, totvb, vmac, vsini, 
                 0, 0, 0, '0', self.adjcont, 'line']
         ## fit is the model after broadening and adjustment
-        # _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-        #                                                 macProf=self.vmacMode)
+        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                        macProf=self.vmacMode)
         ## New cython implementation should be faster
-        fit, _c = broaden_spectra_cy(nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err,
-                           totvb,vmac,vsini,0.,self.adjcont,self.vmacMode)
+        # fit, _c = broaden_spectra_cy(nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err,
+        #                    totvb,vmac,vsini,0.,self.adjcont,self.vmacMode)
         
         # plt.figure()
         # plt.plot(obs_wvl.T, obs_flux.T, color='k')

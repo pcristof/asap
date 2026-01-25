@@ -320,18 +320,18 @@ def broaden_spectra(args, **kwargs):
             # p = int(float(config['OPTIONS']['P']))
             # try:
 
-            # _c, _pss, X, Xerr, X2, X2err = norm_tools.adjust_continuum5(wvl=obs_wvl[r],
-            #                                     obs_flux=obs_flux[r],
-            #                                     model_flux=_spectrum,
-            #                                     window_size=100,
-            #                                     p=90,
-            #                                     degree=1, m=0.05, function=function)
-            ## Implementation in Cython, faster and possibly better.
-            _c, wave_points, obs_points, mod_points = norm_tools_cy.adjust_continuum5_fast_inplace(wvl=obs_wvl[r],
+            _c, _pss, X, Xerr, X2, X2err = norm_tools.adjust_continuum5(wvl=obs_wvl[r],
                                                 obs_flux=obs_flux[r],
                                                 model_flux=_spectrum,
+                                                window_size=100,
                                                 p=90,
-                                                nWindows = 6)
+                                                degree=1, m=0.05, function=function)
+            ## Implementation in Cython, faster and possibly better.
+            # _c, wave_points, obs_points, mod_points = norm_tools_cy.adjust_continuum5_fast_inplace(wvl=obs_wvl[r],
+            #                                     obs_flux=obs_flux[r],
+            #                                     model_flux=_spectrum,
+            #                                     p=90,
+            #                                     nWindows = 6)
             
             _pss = [0,0,0,0]
             X = np.array([0,0])
