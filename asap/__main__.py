@@ -61,6 +61,8 @@ expmode = False ## Do you want to use the log of the components?
 smooth = False ## Attempt to smooth the surface to avoid numerical noise
             ## The smoothing is performed by rounding the likelihood value
 ## Output folder
+if '/' in star:
+    star = star.replace('/', '_')
 opath = 'output_{}{}/'.format(star, folderid)
 if not os.path.isdir(opath): os.mkdir(opath)
 ## Make a READ ONLY copy of the config file in the output folder
