@@ -1084,6 +1084,8 @@ class SpectralAnalysis:
     def set_pathtodata(self, pathtodata):
         self.pathtodata = pathtodata ## Must be a string
     def set_pathtogrid(self, pathtogrid):
+        if not os.path.isdir(pathtogrid):
+            raise Exception('set_pathtogrid -> path does not exist')
         self.pathtogrid = pathtogrid ## Must be a string
     def set_linelist(self, linelist):
         self.linelist = linelist ## Must be a string
@@ -1274,14 +1276,17 @@ class SpectralAnalysis:
         if "p.fits" in filename:
             ## Check that the file is compatible with the file format
             with fits.open(filename) as hdu:
-                if len(hdu)==9:
+                if len(hdu)>=9:
                     keys = [hdu[i].name for i in range(len(hdu))]
+                    switchmode = True
                     for name in ['PRIMARY', 'Pol', 'PolErr', 'StokesI', 'StokesIErr',
                                   'Null1', 'Null2', 'WaveAB', 'BlazeAB']:
                         if name not in keys:
                             print(name)
                             ## This is not a p.fits
-                            mode='poloformat'
+                            switchmode=False
+                    if switchmode:
+                        mode = 'p.fits'
         else:
             mode='poloformat'
         if mode=='p.fits':
