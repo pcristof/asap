@@ -502,3 +502,99 @@ def wrap_interpolate_4d_opt(
         )
         out[l] = interp_spec
     return (teff, logg, mh), out
+
+def wrap_interpolate_4d_opt_mu(
+    double teff,
+    double logg,
+    double mh,
+    double alpha,
+    double[:] teffs,
+    double[:] loggs,
+    double[:] mhs,
+    double[:] alphas,
+    double[:, :, :, :, :, :, :] spectra_arr,
+    int mode
+    ):
+    """
+    Same as wrap_function_fine_linear_opt but also looping through the mu angles
+    Call wrap_function_fine_linear_4d for each spectra in a list.
+
+    Parameters
+    ----------
+    teffs, loggs, mhs, alphas : 1D arrays
+        Grid values
+    spectra_list : list
+        List of 5D arrays: (nteff, nlogg, nmh, nalpha, nlambda)
+    teff, logg, mh, alpha : float
+        Target parameters for interpolation
+    mode : str
+        'linear', 'log', 'log10'
+
+    Returns
+    -------
+    results : list
+        Each element is the interpolated spectrum
+    """
+    cdef ITYPE_t r, nreg = spectra_arr.shape[4] ## number of regions
+    cdef ITYPE_t m, nmus = spectra_arr.shape[5] ## number of mu angles
+    cdef ITYPE_t l, nlam = spectra_arr.shape[6] ## number of wavelengths
+    cdef np.ndarray[np.float64_t, ndim=3] out
+    cdef np.ndarray[np.float64_t, ndim=1] interp_spec
+
+    cdef double wt
+    cdef double wl
+    cdef double wm
+    cdef double wa
+    cdef ITYPE_t it0, it1, il0, il1, im0, im1, ia0, ia1
+    cdef double tl, th, ll, lh, ml, mh_, al, ah
+
+    # --- indices
+    find_bounds(teff, teffs, &it0, &it1)
+    # it1 = it0 + 1
+    find_bounds(logg, loggs, &il0, &il1)
+    # il1 = il0 + 1
+    find_bounds(mh, mhs, &im0, &im1)
+    # im1 = im0 + 1
+    find_bounds(alpha, alphas, &ia0, &ia1)
+    # ia1 = ia0 + 1
+
+    tl = teffs[it0]; th = teffs[it1]
+    ll = loggs[il0]; lh = loggs[il1]
+    ml = mhs[im0];  mh_ = mhs[im1]
+    al = alphas[ia0]; ah = alphas[ia1]
+
+    ## Precompute the weights for interpolation; same for all pixels.
+    if th==tl: wt=0.
+    else: wt = (teff  - tl) / (th - tl)
+    if (lh==ll): wl=0
+    else: wl = (logg  - ll) / (lh - ll)
+    if (mh_==ml): wm=0
+    else: wm = (mh    - ml) / (mh_ - ml)
+    if (ah==al): wa=0
+    else: wa = (alpha - al) / (ah - al)
+
+    out = np.zeros((nreg, nmus, nlam))
+
+    for r in range(nreg):
+        # Call the fast Cython function
+        # interp_spec = interpolate_4d_opt(
+        #     it0, it1, il0, il1, im0, im1, ia0, ia1,
+        #     wt, wl, wm, wa,
+        #     spectra_arr[:,:,:,:,l,:],
+        #     mode
+        # )
+        for m in range(nmus):
+            # _, interp_spec = interpolate_4d(
+            #     teff, logg, mh, alpha,
+            #     teffs, loggs, mhs, alphas,
+            #     spectra_arr[:,:,:,:,r,m,:],
+            #     0
+            # )
+            interp_spec = interpolate_4d_opt(
+                it0, it1, il0, il1, im0, im1, ia0, ia1,
+                wt, wl, wm, wa,
+                spectra_arr[:,:,:,:,r,m,:],
+                mode
+            )
+            out[r, m] = interp_spec
+    return (teff, logg, mh), out

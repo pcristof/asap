@@ -35,6 +35,12 @@ extensions = [
         include_dirs=[np.get_include()],
         extra_compile_args=["-O3"],
     ),
+    Extension(
+        name="asap.c_tools.disk_integration",
+        sources=["asap/c_tools/disk_integration.pyx"],
+        include_dirs=[np.get_include()],
+        extra_compile_args=["-O3"],
+    ),
 ]
 
 setup(
