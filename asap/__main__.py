@@ -63,6 +63,8 @@ smooth = False ## Attempt to smooth the surface to avoid numerical noise
 ## Output folder
 if '/' in star:
     _star = star.replace('/', '_')
+else:
+    _star = star
 opath = 'output_{}{}/'.format(_star, folderid)
 if not os.path.isdir(opath): os.mkdir(opath)
 ## Make a READ ONLY copy of the config file in the output folder
