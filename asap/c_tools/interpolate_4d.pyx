@@ -366,6 +366,55 @@ cdef np.ndarray[np.float64_t, ndim=1] interpolate_4d_opt(
     return out
 
 
+def wrap_interpolate_4d_single_region(
+    double teff,
+    double logg,
+    double mh,
+    double alpha,
+    double[:] teffs,
+    double[:] loggs,
+    double[:] mhs,
+    double[:] alphas,
+    double[:, :, :, :, :] spectra_arr,
+    int mode
+    ):
+    """
+    Call wrap_function_fine_linear_4d for each spectra in a list.
+
+    Parameters
+    ----------
+    teffs, loggs, mhs, alphas : 1D arrays
+        Grid values
+    spectra_list : list
+        List of 5D arrays: (nteff, nlogg, nmh, nalpha, nlambda)
+    teff, logg, mh, alpha : float
+        Target parameters for interpolation
+    mode : str
+        'linear', 'log', 'log10'
+
+    Returns
+    -------
+    results : list
+        Each element is the interpolated spectrum
+    """
+    # cdef ITYPE_t r, nreg = spectra_arr.shape[3] ## number of regions
+    cdef ITYPE_t l, nlam = spectra_arr.shape[4] ## number of regions
+    cdef np.ndarray[np.float64_t, ndim=1] out
+    # cdef np.ndarray[np.float64_t, ndim=1] interp_spec
+
+    out = np.empty(nlam)
+
+    # for l in range(nreg):
+        # Call the fast Cython function
+    _, out = interpolate_4d(
+        teff, logg, mh, alpha,
+        teffs, loggs, mhs, alphas,
+        spectra_arr[:,:,:,:,:],
+        0
+    )
+    # out[l] = interp_spec
+    return (teff, logg, mh), out
+
 def wrap_interpolate_4d(
     double teff,
     double logg,

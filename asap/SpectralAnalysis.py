@@ -36,10 +36,12 @@ from asap import params
 from asap import analysis_tools as tls
 from asap import line_selection_tools as line_tools
 from asap.spectral_analysis_pack import wrap_function_fine_linear_4d
+from asap.c_tools.interpolate_4d import wrap_interpolate_4d_single_region  as wrap_interpolate_4d_single_region_c
 from asap.c_tools.interpolate_4d import wrap_interpolate_4d_opt  as wrap_interpolate_4d_c
 from asap.c_tools.interpolate_4d import wrap_interpolate_4d_opt_mu  as wrap_interpolate_4d_c_mu
 from asap.c_tools.disk_integration import build_sphere_grid, integrate_sphere, integrate_sphere_fast
 from asap.c_tools.disk_integration import integrate_sphere_fast_regions
+from asap.c_tools.disk_integration import integrate_sphere_fast_regions_2
 from asap.spectral_analysis_pack import broaden_spectra
 from asap.c_tools.spectral_broadening import broaden_spectra_cy
 from asap.spectral_analysis_pack import veiling_function
@@ -1677,19 +1679,28 @@ class SpectralAnalysis:
 
         ## Need to define the grid type:
         if os.path.isfile(pathtogrid+'grid.info'):
+            readList=False
             with open(pathtogrid+'grid.info', 'r') as f:
                 grid_data = {}
                 for line in f.readlines():
                     if line.strip()=='': continue
-                    sl = line.split()
-                    grid_data[sl[0]] = sl[1]
+                    if line.strip()=='listFiles':
+                        readList=True; continue
+                    elif not readList:
+                        sl = line.split()
+                        grid_data[sl[0]] = sl[1]
+                    elif readList:
+                        if 'file_list' not in grid_data:
+                            grid_data['file_list'] = []
+                        grid_data['file_list'].append(line.strip())
             gridType = grid_data['gridType']
         else:
             gridType = 'unknown'
         if gridType=='ZEETURBO_MU':
             nwvls = self.load_zeeturbo_mu(pathtogrid, grid_data, regions)
         elif gridType=='PCA_COMPRESSED':
-            nwvls = self.load_pca_compressed(pathtogrid, grid_data, regions)
+            # nwvls = self.load_pca_compressed(pathtogrid, grid_data, regions)
+            nwvls = self.load_pca_compressed_decompress(pathtogrid, grid_data, regions)
         else:
             o = self.load_grid_oldstyle(pathtogrid, regions)
             nwvls = o[0]
@@ -1699,7 +1710,7 @@ class SpectralAnalysis:
     def load_zeeturbo_mu(self, pathtogrid, grid_data, regions):
         self.diskIntegrationMode = 1
         ## Check the grid boundaries
-        subsets = grid_data['subsets'].split(',')
+        subsets = grid_data['file_list']
         wvls = []
         teffs = []
         loggs = []
@@ -1711,17 +1722,30 @@ class SpectralAnalysis:
         cont = []
         indexing = []
         data = {}
+        n=0
+        ntot = len(subsets)
+        master_wave = None
         for subset in subsets:
             if subset=='': continue
             with h5py.File(pathtogrid+subset, "r") as f:
-                teff = float(f.attrs['teff'])
-                logg = float(f.attrs['logg'])
-                mh = float(f.attrs['mh'])
-                alpha = float(f.attrs['alpha'])
-                bmono = float(f.attrs['bmono'])/1000 ## to kG
-                wvls.append(f['wave'][:])
-                stokesi.append(f['stokesi'][:])
-                cont.append(f['cont'][:])
+                n+=1
+                attrs = dict(f.attrs)
+                teff   = float(attrs['teff'])
+                logg   = float(attrs['logg'])
+                mh     = float(attrs['mh'])
+                alpha  = float(attrs['alpha'])
+                bmono  = float(attrs['bmono']) / 1000
+                # teff = float(f.attrs['teff'])
+                # logg = float(f.attrs['logg'])
+                # mh = float(f.attrs['mh'])
+                # alpha = float(f.attrs['alpha'])
+                if (teff<self.teffs[0])|(teff>self.teffs[-1]): continue
+                if (logg<self.loggs[0])|(logg>self.loggs[-1]): continue
+                if (mh<self.mhs[0])|(mh>self.mhs[-1]): continue
+                if (alpha<self.alphas[0])|(alpha>self.alphas[-1]): continue
+                # bmono = float(f.attrs['bmono'])/1000 ## to kG
+                if master_wave is None:
+                    master_wave = f['wave'][:]
                 _b.append(bmono)
                 teffs.append(teff)
                 loggs.append(logg)
@@ -1729,8 +1753,12 @@ class SpectralAnalysis:
                 alphas.append(alpha)
                 _index = (float(teff), float(logg), float(mh), float(alpha), float(bmono))
                 indexing.append(_index)
-                data[_index] = {'stokesi': f['stokesi'][:], 'cont': f['cont'][:], 'wave': f['wave'][:], 'mu_angles': f['mu_angles'][:]}
+                data[_index] = {'stokesi': f['stokesi'][:], 'cont': f['cont'][:], 'mu_angles': f['mu_angles'][:]}
 
+                stat = n / ntot * 100
+                print("Reading files... {:0.2f} %".format(stat), 
+                                                end='\r')
+        
         _t = np.sort(np.unique(teffs))
         _l = np.sort(np.unique(loggs))
         _m = np.sort(np.unique(mhs))
@@ -1783,7 +1811,7 @@ class SpectralAnalysis:
             raise Exception('SpectralAnalysis->load_zeeturbo_mu: '
                             +'Problem initializing magnetic filling factors')
 
-        wave = data[(teffs[0], loggs[0], mhs[0], alphas[0], _b[0])]['wave']
+        wave = master_wave
         w = tls.convert_lambda_in_vacuum(wave)
 
         ## Get the number of mu angles
@@ -1791,8 +1819,9 @@ class SpectralAnalysis:
         self.mu_angles = np.array(data[(teffs[0], loggs[0], mhs[0], alphas[0], _b[0])]['mu_angles'],dtype=float)
 
         ## Now we want to reconstruct the spectra and create the regions
-        wgrid = np.zeros((self.d1, self.d2, self.d3, 
-                    self.d4, self.d5, self.nb_mus, self.d6)).tolist()
+        # wgrid = np.zeros((self.d1, self.d2, self.d3, 
+        #             self.d4, self.d5, self.nb_mus, self.d6)).tolist()
+        wgrid = np.zeros((self.d6)).tolist()
         wvls = np.zeros((self.d6)).tolist()
         grid = np.zeros([self.d1, self.d2, self.d3, 
                           self.d4, self.d5, self.nb_mus, self.d6]).tolist()
@@ -1810,11 +1839,15 @@ class SpectralAnalysis:
                             # for imu in enumerate(self.mu_angles):
                             ## Construct the spectrum
                             for imu, mu in enumerate(self.mu_angles):
-                                s = data[(teffs[it], loggs[il], mhs[im], alphas[ia], _b[ib])]['stokesi'][:, imu]
+                                s = data[(self.teffs[it], self.loggs[il], 
+                                          self.mhs[im], self.alphas[ia], 
+                                          self.bs[ib])]['stokesi'][:, imu]
                                 _wvl, _spectrum = line_tools.make_contrained_regions(w, 
                                                                 s, 
                                                                 regions)
-                                c = data[(teffs[it], loggs[il], mhs[im], alphas[ia], _b[ib])]['cont'][:, imu]
+                                c = data[(self.teffs[it], self.loggs[il], 
+                                          self.mhs[im], self.alphas[ia], 
+                                          self.bs[ib])]['cont'][:, imu]
                                 _, _cont = line_tools.make_contrained_regions(w, 
                                                                 c, 
                                                                 regions)
@@ -1837,17 +1870,18 @@ class SpectralAnalysis:
                                 #
                                 #
                                 for ir in range(len(regions)):
-                                    wgrid[it][il][im][ia][ib][imu][ir] = _wvl[ir]
+                                    wgrid[ir] = _wvl[ir]
                                     grid[it][il][im][ia][ib][imu][ir] = _spectrum[ir]
                                     grid_cont[it][il][im][ia][ib][imu][ir] = _cont[ir]
                                     wvls[ir] = _wvl[ir]
                                 n += 1
                                 stat = n / ntot * 100
-                                print("Reading... {:0.2f} %".format(stat), 
+                                print("Creating regions... {:0.2f} %".format(stat), 
                                                                 end='\r')
         ## Get the length of the arrays need to store the regions
         maxlen = 0
-        wvls = wgrid[0][0][0][0][0][0]
+        # wvls = wgrid[0][0][0][0][0][0]
+        wvls = wgrid
         for r in range(len(wvls)):
             _len = len(wvls[r])
             if _len > maxlen:
@@ -1890,6 +1924,157 @@ class SpectralAnalysis:
         return nwvls
 
     def load_pca_compressed(self, pathtogrid, grid_data, regions):
+        '''Read the compressed grid, but do not decommpress it. Interpolations
+        will be done on the compressed grid.'''
+        self.diskIntegrationMode = 2
+        ## Subset of files to read
+        subsets = grid_data['subsets'].split(',')
+        ## Check grid dimensions:
+        with h5py.File(pathtogrid+subsets[0], "r") as f:
+            _t = f["teffs"][:] 
+            _l = f["loggs"][:] 
+            _m = f["mhs"][:] 
+            _a = f["alphas"][:] 
+        ## Check they are the same everywhere:
+        for subset in subsets:
+            with h5py.File(pathtogrid+subset, "r") as f:
+                _teffs = f["teffs"][:] 
+                _loggs = f["loggs"][:] 
+                _mhs = f["mhs"][:] 
+                _alphas = f["alphas"][:] 
+                if np.any(_teffs!=_t): raise Exception('Grid dimensions differ')
+                if np.any(_loggs!=_l): raise Exception('Grid dimensions differ')
+                if np.any(_mhs!=_m): raise Exception('Grid dimensions differ')
+                if np.any(_alphas!=_a): raise Exception('Grid dimensions differ')
+        
+        ## Based on request and grid dimensions, choose the indices to keep:
+        ## Adjust arrays so that we take the true values in the grid 
+        ## and only use the min and max
+        _tl = self.teffs[0];_th = self.teffs[-1]
+        idx_teff = (_t>=_tl) & (_t<=_th)
+        self.teffs = _t[idx_teff]
+        _ll = self.loggs[0];_lh = self.loggs[-1]
+        idx_logg = (_l>=_ll) & (_l<=_lh)
+        self.loggs = _l[idx_logg]
+        _ml = self.mhs[0];_mh = self.mhs[-1]
+        idx_mh = (_m>=_ml) & (_m<=_mh)
+        self.mhs = _m[idx_mh]
+        _al = self.alphas[0];_ah = self.alphas[-1]
+        idx_alpha = (_a>=_al) & (_a<=_ah)
+        self.alphas = _a[idx_alpha]
+
+        ## Check they are the same everywhere:
+        _b = []
+        mean_spectra = []
+        basis = []
+        coeffs = []
+        wvls = []
+        for subset in subsets:
+            print(f'Reading {subset}')
+            with h5py.File(pathtogrid+subset, "r") as f:
+                _bval = f.attrs["BVAL"]
+                if _bval not in self.bs: continue
+                ## Otherwise read it all
+                _b.append(f.attrs["BVAL"])
+                _wave = f["wave"][:]
+                _mean = f["mean_spectrum"][:]       # (Nλ,)
+                _basis = f["basis"][:]                       # (K, Nλ)
+                g = f["coeffs"][idx_teff, :, :, :, :]
+                g = g[:, idx_logg, :, :, :]
+                g = g[:, :, idx_mh, :, :]
+                g = g[:, :, :, idx_alpha, :]
+                _coeffs = g   # (K,)
+                wvls.append(_wave)
+                mean_spectra.append(_mean)
+                basis.append(_basis)
+                coeffs.append(_coeffs)
+
+        _b = np.array(_b)
+        self.update_bs(_b)
+        self.get_grid_dims() ## Update the fundamental grid dimensions
+
+        wvls = np.array(wvls)
+        coeffs = np.array(coeffs)
+        basis = np.array(basis)
+        mean_spectra = np.array(mean_spectra)
+
+        self.len_pca_coeffs = len(coeffs[0,0,0,0,0])
+
+
+        ## Sort by magnetic field value
+        idxsort = np.argsort(_b)
+        _b = _b[idxsort]
+        wvls = wvls[idxsort]
+        coeffs = coeffs[idxsort]
+        basis = basis[idxsort]
+        mean_spectra = mean_spectra[idxsort]
+
+        w = tls.convert_lambda_in_vacuum(wvls[0])
+
+        ## Now we want to reconstruct the spectra and create the regions
+        wgrid = np.zeros((self.d1, self.d2, self.d3, 
+                    self.d4, self.d5, self.d6)).tolist()
+        wvls = np.zeros((self.d6)).tolist()
+        grid = np.zeros([self.d1, self.d2, self.d3, 
+                          self.d4, self.d5, self.d6]).tolist()
+
+        # grid = np.array(coeffs, dtype=float)
+        self.pca_mean = []
+        self.pca_basis = []
+        wgrid = []
+
+        for ib, B in enumerate(self.bs):
+            print(f'Creating regions {ib}/{len(self.bs)}', end='\r')
+            _pca_basis_r = []
+            for iv in range(len(basis[0])):
+                _wvl, _pca_basis = line_tools.make_contrained_regions(w, 
+                                    basis[ib, iv], 
+                                    regions)
+                _pca_basis_r.append(_pca_basis)
+            self.pca_basis.append(_pca_basis_r)
+            _wvl, _pca_mean = line_tools.make_contrained_regions(w, 
+                                mean_spectra[ib], 
+                                regions)
+            self.pca_mean.append(_pca_mean)
+
+        ## The wavelengths are the same for different magnetic field values
+        wvls = _wvl
+        ## Get the length of the arrays need to store the regions
+        maxlen = 0
+        for r in range(len(wvls)):
+            _len = len(wvls[r])
+            if _len > maxlen:
+                maxlen = _len
+        self.d7 = maxlen
+
+        nwvls = np.zeros((self.d6, self.d7))
+        nbase = np.zeros((self.d5, self.d6, len(basis[0]), self.d7))
+        nmean = np.zeros((self.d5, self.d6, self.d7))
+
+        for ib, B in enumerate(self.bs):
+            for r in range(len(regions)):
+                _maxlen = len(self.pca_mean[ib][r])
+                _dwvls = wvls[r][-1] - wvls[r][-2]
+                _wvls = np.arange(maxlen) * _dwvls + wvls[r][0]
+                # try:
+                _wvls[:_maxlen] = wvls[r]
+                nwvls[r] = _wvls
+                for _ibase in range(len(basis[0])):
+                    nbase[ib, r, _ibase][:_maxlen] = self.pca_basis[ib][_ibase][r]
+                nmean[ib, r][:_maxlen] = self.pca_mean[ib][r]
+
+
+        self.pca_basis = nbase
+        self.pca_mean = nmean
+
+        self.grid_n = np.array(coeffs, dtype=float)
+        # self.grid_n = np.moveaxis(grid, -3, 0) ## Place magnetic field as first index
+        self.nwvls = nwvls
+        
+        print('Done grid')
+        return nwvls
+
+    def load_pca_compressed_decompress(self, pathtogrid, grid_data, regions):
         self.diskIntegrationMode = 0
         ## Subset of files to read
         subsets = grid_data['subsets'].split(',')
@@ -2342,7 +2527,8 @@ class SpectralAnalysis:
     ################################
     def gen_spec(self, *args):
         if self.diskIntegrationMode==1: fit_v = self.gen_spec_mu(*args)
-        else: fit_v = self.gen_spec_int_spectra(*args)
+        elif self.diskIntegrationMode==0: fit_v = self.gen_spec_int_spectra(*args)
+        elif self.diskIntegrationMode==2: fit_v = self.gen_spec_int_pca(*args)
         return fit_v
 
     def gen_spec_mu(self, obs_wvl, obs_flux, obs_err, nan_mask, nwvls, grid_n, 
@@ -2351,7 +2537,6 @@ class SpectralAnalysis:
              vsini=None, vmac=None, veilingFacToFit=None,
                T2=None, fillTeffs=np.array([1, 0])):
         '''Direct disk integration'''
-        print('CAUTTION - FUNCTION NOT FINISHED YET')
 
         if vb is None: vb = self.vb
         if rv is None: rv = self.rv
@@ -2424,43 +2609,160 @@ class SpectralAnalysis:
         #                             rotAngle=90.0,
         #                             )
         
+        if self.vmacMode=='rt':
+            vmacRT = vmac
+            vmac = 0.
+        else:
+            vmacRT = 0.
+
         ## This is the part of the code that slows things down.
-        disk_integrated_spectrum = integrate_sphere_fast_regions(nwvls, 
+        disk_integrated_spectrum = integrate_sphere_fast_regions_2(nwvls, 
                                     mergedspec, 
                                     mergedcont, 
                                     self.cells,
+                                    self.mu_angles,
                                     veq=vsini,
+                                    vmac=vmacRT,
                                     rotAngle=90.0,
+                                    vmac_mode = 'rt'
                                     )
+
         disk_integrated_spectrum[np.isnan(disk_integrated_spectrum)] = 0.
-
-        # from IPython import embed;embed()
-
-        # plt.figure()
-        # plt.plot(disk_integrated_spectrum[r])
-        # plt.show()
-
-        # disk_integrated_spectrum = mergedspec[:,0,:]/mergedcont[:,0,:]
-        # disk_integrated_spectrum[np.isnan(disk_integrated_spectrum)] = 0.
-
-        etime = time.time()
-        # print(f'TIME: {etime-itime:0.2f}')
 
         ## Then I can integrate the same way I was doing before,
         ## But macroturbulence and rotation are set to 0 (already accounted for)
-
         nwvls_shift = nwvls * dopshift
 
         ## The total broadening (gaussian) of the instrument is
         totvb = np.sqrt(self.vinstru**2 + vb**2 + self.smoothSpectraVel**2)
 
-        vmac = 0. ## IF IS RT
+        vsini = 0. ## Vsini already accounted for
         
-        ## New cython implementation should be faster
-        fit, _c = broaden_spectra_cy(nwvls_shift, disk_integrated_spectrum, 
-                                     obs_wvl, obs_flux, obs_err,
-                                     totvb,vmac,0.,0.,self.adjcont,self.vmacMode)
+        # args = [0, nwvls_shift, disk_integrated_spectrum0, obs_wvl, obs_flux, obs_err, 
+        #         nan_mask, totvb, vmac, vsini,
+        #         0, 0, 0, '0', self.adjcont, 'line']
+        # ## fit is the model after broadening and adjustment
+        # _, _, _, fit0, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+        #                                                 macProf='g')
 
+        import time
+        itime = time.time()
+        for II in range(1000):
+            args = [0, nwvls_shift, disk_integrated_spectrum, obs_wvl, obs_flux, obs_err, 
+                    nan_mask, totvb, vmac, vsini, 
+                    0, 0, 0, '0', self.adjcont, 'line']
+            ## fit is the model after broadening and adjustment
+            _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                            macProf='g')
+        etime = time.time()
+        print(f"Time: {etime-itime}")
+
+        # ## New cython implementation should be faster
+        # fit, _c = broaden_spectra_cy(nwvls_shift, disk_integrated_spectrum, 
+        #                              obs_wvl, obs_flux, obs_err,
+        #                              totvb,vmac,0.,0.,self.adjcont,self.vmacMode)
+
+        veilingFac = self.veilingFac
+        fitveilpos = np.zeros(self.nbFitVeil, dtype=int)
+        if self.fitVeiling:
+            ## Check that fitBands contain something
+            if self.fitBands=="": raise Exception('fitBands empty but fitVeiling==True')
+            for ib, band in enumerate(self.fitBands):
+                fitveilpos[ib] = self.veilingBands.find(band)
+            veilingFac[fitveilpos] = veilingFacToFit
+        myveiling = veiling_function(veilingFac, obs_wvl, self.veilingBands)
+        fit_v = (fit + myveiling) / (1 + myveiling)# veiled spectrum
+
+        return fit_v
+
+    def gen_spec_int_pca(self, obs_wvl, obs_flux, obs_err, nan_mask, nwvls, grid_n, 
+             coeffs, T, L, M, A,
+             teffs, loggs, mhs, alphas, vb=None, rv=None,  
+             vsini=None, vmac=None, veilingFacToFit=None,
+               T2=None, fillTeffs=np.array([1, 0])):
+        '''Genertare interpolated, broadened and adjusted magnetic model.'''
+
+        if vb is None: vb = self.vb
+        if rv is None: rv = self.rv
+        if vsini is None: vsini = self.vsini
+        if vmac is None: vmac = self.vmac
+        if veilingFacToFit is None: veilingFacToFit = self.veilingFacToFit
+        ## Determine the radial velocity shift
+        dopshift = tls.doppler(rv)
+        _Bspec = np.zeros((self.d5, self.len_pca_coeffs))
+
+        itime = time.time()
+        for i in range(self.d5):
+            try:
+                _, s = wrap_interpolate_4d_single_region_c(
+                                                    T, L, M, A,
+                                                    teffs, loggs, mhs, alphas,
+                                                    grid_n[i], 
+                                                    0)
+            except:
+                raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
+            _Bspec[i] = s
+        etime = time.time()
+        print(f'Time:{etime-itime}')
+
+        mergedspec = np.empty((self.d6, self.d7))
+
+        s = []
+        for ib in range(self.d5):
+            _s = _Bspec[ib] @ self.pca_basis[ib] + self.pca_mean[ib]
+            s.append(_s*coeffs[ib])
+        mergedspec = np.sum(s, axis=0)
+
+        #
+        ## IF we have a second temperature
+        if T2 is not None:
+            _Bspec = np.zeros((self.d5, self.len_pca_coeffs))
+            for i in range(self.d5):
+                _, s = wrap_function_fine_linear_4d(
+                                                    T2, L, M, A,
+                                                    teffs, loggs, mhs, alphas,
+                                                    grid_n[i], 
+                                                    function=self.interpFunc)
+                _Bspec[i] = s
+            s = []
+            for ib in range(self.d5):
+                _s = _Bspec[ib] @ self.pca_basis[ib] + self.pca_mean[ib]
+                s.append(_s*coeffs[ib])
+            mergedspec2 = np.sum(s, axis=0)
+            mergedspec = fillTeffs[0]*mergedspec + fillTeffs[1]*mergedspec2
+        
+        ## Apply the doppler shift to the wavelength solution of the
+        ## SYNTHETIC spectrum. IF it is applied to the observation spectrum
+        ## This means that we will not have the synhtetic spectrum on the same
+        ## wavelength grid, and that will be a major problem.
+        nwvls_shift = nwvls * dopshift
+        ## We need to make a check here: if the radial velocity is so large that
+        ## the spectrum is out the window we are going to have a problem.
+        ## I is equivalent to adding a prior, but we do not want to the code to fail here.
+
+        ## The total broadening (gaussian) of the instrument is
+        totvb = np.sqrt(self.vinstru**2 + vb**2 + self.smoothSpectraVel**2)
+
+        ## Here we determine the correct veiling
+        # myveiling = veiling_function(veilingFac, nwvls_shift)
+        
+        args = [0, nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err, 
+                nan_mask, totvb, vmac, vsini, 
+                0, 0, 0, '0', self.adjcont, 'line']
+        ## fit is the model after broadening and adjustment
+        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                        macProf=self.vmacMode)
+        ## New cython implementation should be faster
+        # fit, _c = broaden_spectra_cy(nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err,
+        #                    totvb,vmac,vsini,0.,self.adjcont,self.vmacMode)
+
+        # ## Here we determine the correct veiling
+        ## Here I forbid the veiling from the other bands to compensate for the veiling
+        ## in the YJHK bands.
+        ## Now it gets tricky. I will put the values that we actually fit in place in the array
+        ## For the veiling, we therefore must know: which bands we pass to the function
+        ## What are the values provided for all bands
+        ## For which band we fit the values
         veilingFac = self.veilingFac
         fitveilpos = np.zeros(self.nbFitVeil, dtype=int)
         if self.fitVeiling:
