@@ -83,6 +83,8 @@ setup(
             'asap.gen_synth_obs=asap.scripts.gen_synth_obs:main',  # Command-line utility
             'asap.convert_ov_observations=asap.scripts.convert_ov_observations:main',
             'asap.plot_corner=asap.scripts.plot_corner:main',
+            'asap.pca_compress_zeeturbo_grid='\
+            +'asap.scripts.pca_compress_zeeturbo_grid:main',
             # 'asap.run_analysis=asap.scripts.run_analysis:main',  # Command-line utility
         ],
     },
