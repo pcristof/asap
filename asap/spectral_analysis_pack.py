@@ -523,6 +523,7 @@ def fill_nans_wavelength(med_wvl):
             x = np.arange(len(med_wvl[r]), dtype=float)
             idx = np.where(~np.isnan(med_wvl[r]))
             poly_order = 0
+            lastTurn = False
             while KEEPGOING:
                 poly_order+=1
                 if len(x[idx])==2:
@@ -549,15 +550,24 @@ def fill_nans_wavelength(med_wvl):
                     next_low = 25000
                     new_med_wvl[r] = np.linspace(prev_high, next_low, len(new_med_wvl[r]), dtype=float)*np.nan
                     std = 1e-20 ## dummy value
+                if lastTurn:
+                    KEEPGOING = False
                 if np.any(np.diff(new_med_wvl[r])<0):
-                    raise Exception('FATAL ERROR - non-increasing wavelength')
+                    if lastTurn:
+                        print('FATAL ERROR - non-increasing wavelength')
+                        print('We should not be reaching this point...')
+                        from IPython import embed;embed()
+                        raise Exception('FATAL ERROR - non-increasing wavelength')
+                    lastTurn = True
+                    poly_order-=2
                 elif std<STDTOL: KEEPGOING = False ## Convergence reached
                 elif (std>STDTOL) & (poly_order>=ORDERMAX):
+                    print('ISSUE RECONSTRUCTING THE WAVELENGTHS')
                     from IPython import embed; embed()
                     import matplotlib.pyplot as plt
                     plt.figure()
                     plt.plot(new_med_wvl[r])
-                    plt.plot(med_wvl[r], 'o')
+                    plt.plot(med_wvl[r], '.')
                     plt.show()
                     print(f'STD = {std}')
                     raise Exception('Reconstructing wavelength solution: STD too high. Contact Author')

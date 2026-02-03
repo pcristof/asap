@@ -553,7 +553,8 @@ def read_mask(file):
 
 def find_optimal_order(regions, wvl, flx):
     '''Function to find the optimal order based on distance to the edges
-    Function takes flx to avoid edges full of NaNs'''
+    Function takes flx to avoid edges full of NaNs
+    Except I now define the edges as the first and last non-NaN value'''
     orders = np.zeros(len(regions))
     for ii, reg in enumerate(regions):
         optorder = None
