@@ -30,7 +30,7 @@ parser.add_argument("-d", "--dynesty", type=bool, default=False)
 parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
 
 args = parser.parse_args()
-ncores = args.nbofcores
+# ncores = args.nbofcores
 dynesty = args.dynesty
 if args.star is not None:
     star = args.star.strip()
@@ -281,8 +281,11 @@ print('Done loading grid')
 nwalkers    = SA.nwalkers
 nsteps      = SA.nsteps
 # if ncores is None: ## If not we keep what we passed
-ncores      = SA.set_ncores(ncores)
+if args.nbofcores is not None:
+    ncores      = SA.set_ncores(args.nbofcores)
 # if not SA.parallel: ncores = 1
+
+ncores = SA.ncores
 
 # SA.set_nwalkers(nwalkers)
 # SA.set_nsteps(nsteps)
@@ -427,7 +430,7 @@ else:
 
 # import corner
 if SA.parallel:
-    print('Running in parallel mode')
+    print(f'Running in parallel mode width ncores={ncores}')
     
     if sys.platform == "darwin": ## This should be a mac
         print('OS detected: MacOS')
