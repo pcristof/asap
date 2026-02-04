@@ -430,7 +430,7 @@ else:
 
 # import corner
 if SA.parallel:
-    print(f'Running in parallel mode width ncores={ncores}')
+    print(f'Running in parallel mode with ncores={ncores}')
     
     if sys.platform == "darwin": ## This should be a mac
         print('OS detected: MacOS')
