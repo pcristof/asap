@@ -62,6 +62,8 @@ import h5py
 from importlib.resources import files
 from asap.spectral_analysis_pack import fill_nans_wavelength
 from asap.spectral_analysis_pack import fill_nans_wavelength_v2
+from asap.spectral_analysis_pack import fill_nans_wavelength_v3
+
 import shutil
 
 def read_res(filename):
@@ -1335,7 +1337,7 @@ class SpectralAnalysis:
         ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
         ## That is a problem for us, so we complete it:
         if np.any(np.isnan(wvl)):
-            wvl = fill_nans_wavelength(wvl)
+            nwvl = fill_nans_wavelength_v3(wvl)
 
         ## Get a RV guess
         if self.guessRV:

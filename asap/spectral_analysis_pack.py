@@ -517,6 +517,7 @@ def fill_nans_wavelength(med_wvl):
         STDTOL = 1e-6 ## Maximimum deviation from input wavelength allowed
         new_med_wvl = np.empty(med_wvl.shape)
         prev_high = 0 ## highest wvl of the previous order 
+        poly_orders = []
         for r in range(len(med_wvl)):
             KEEPGOING = True
             ORDERMAX = len(med_wvl) ## Maximum allowed order
@@ -524,6 +525,7 @@ def fill_nans_wavelength(med_wvl):
             idx = np.where(~np.isnan(med_wvl[r]))
             poly_order = 0
             lastTurn = False
+            prev_val = np.inf
             while KEEPGOING:
                 poly_order+=1
                 if len(x[idx])==2:
@@ -541,6 +543,10 @@ def fill_nans_wavelength(med_wvl):
                     prev_high = new_med_wvl[r][-1]
                     ## Check that the residuals are sufficiently low:
                     std = np.nanstd(med_wvl[r] - new_med_wvl[r])
+                    if std>prev_val:
+                        KEEPGOING = False
+                    else:
+                        prev_val = std
                 else:
                     print('Caution, full NaN order')
                     ## In that case we have a problem.
@@ -552,7 +558,7 @@ def fill_nans_wavelength(med_wvl):
                     std = 1e-20 ## dummy value
                 if lastTurn:
                     KEEPGOING = False
-                if np.any(np.diff(new_med_wvl[r])<0):
+                if np.any(np.diff(new_med_wvl[r][idx])<0):
                     if lastTurn:
                         print('FATAL ERROR - non-increasing wavelength')
                         print('We should not be reaching this point...')
@@ -561,18 +567,20 @@ def fill_nans_wavelength(med_wvl):
                     lastTurn = True
                     poly_order-=2
                 elif std<STDTOL: KEEPGOING = False ## Convergence reached
-                elif (std>STDTOL) & (poly_order>=ORDERMAX):
+                elif (((std>STDTOL) & (poly_order>=ORDERMAX))
+                    | ((std>STDTOL) & lastTurn)):
                     print('ISSUE RECONSTRUCTING THE WAVELENGTHS')
-                    from IPython import embed; embed()
-                    import matplotlib.pyplot as plt
-                    plt.figure()
-                    plt.plot(new_med_wvl[r])
-                    plt.plot(med_wvl[r], '.')
-                    plt.show()
+                    # from IPython import embed; embed()
+                    # import matplotlib.pyplot as plt
+                    # plt.figure()
+                    # plt.plot(new_med_wvl[r])
+                    # plt.plot(med_wvl[r], '.')
+                    # plt.show()
                     print(f'STD = {std}')
-                    raise Exception('Reconstructing wavelength solution: STD too high. Contact Author')
+                    # raise Exception('Reconstructing wavelength solution: STD too high. Contact Author')
+            poly_orders.append(poly_order)
     ########################################## 
-    return new_med_wvl
+    return new_med_wvl, poly_orders
 
 # @jit(nopython=True)
 def rebuilt_wavelength(wave):
@@ -664,3 +672,46 @@ def fill_nans_wavelength_v2(med_wvl):
         indices = np.array([np.arange(len(med_wvl[0])) for i in range(len(med_wvl))])
     ########################################## 
     return new_med_wvl, indices
+
+from scipy.interpolate import interp1d
+def fill_nans_wavelength_v3(med_wvl):
+    '''
+    Notes:
+    Update Sep. 18, 2025: Change of rationale
+    Same as fill_nans_wavelength, but use cubic spline between pixels.'''
+    ####################################
+    if np.any(np.isnan(med_wvl)):
+        ## Some people put NaNs in the wavelengths... don't ask.
+        ## Here is a fix:
+        new_med_wvl = np.empty(med_wvl.shape)
+        for r in range(len(med_wvl)):
+            x = np.arange(len(med_wvl[r]), dtype=float)
+            idx = np.where(~np.isnan(med_wvl[r]))
+            ## What is the first non-NaN bin?
+            for i in range(len(med_wvl[r])):
+                if ~np.isnan(med_wvl[r][i]):
+                    firstbin = i
+                    break
+            for i in range(len(med_wvl[r])-1, 0, -1):
+                if ~np.isnan(med_wvl[r][i]):
+                    lastbin = i
+                    break
+            fun = interp1d(x[idx], med_wvl[r][idx], kind='cubic')
+            new_med_wvl[r, firstbin:lastbin] = fun(x[firstbin:lastbin])
+            ## Now handle the edges:
+            lowdiff = new_med_wvl[r, firstbin+1]-new_med_wvl[r, firstbin]
+            maxdiff = new_med_wvl[r, lastbin-1]-new_med_wvl[r, lastbin-2]
+            lowend = np.arange(firstbin)*lowdiff + (new_med_wvl[r, firstbin]-firstbin*lowdiff)
+            lenright = len(new_med_wvl[r])-lastbin #
+            highend = np.arange(1, lenright+1)*maxdiff + (new_med_wvl[r, lastbin-1])
+            new_med_wvl[r, :firstbin] = lowend
+            new_med_wvl[r, lastbin:] = highend
+            
+            # plt.plot(np.diff(new_med_wvl[r]))
+            if np.any(np.diff(new_med_wvl[r])<0):
+                print('FATAL ERROR - non-increasing wavelength')
+                print('We should not be reaching this point...')
+                from IPython import embed;embed()
+                raise Exception('FATAL ERROR - non-increasing wavelength')
+    ########################################## 
+    return new_med_wvl
