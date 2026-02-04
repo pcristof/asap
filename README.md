@@ -8,6 +8,7 @@ Some versions of this package were also used in:
 - [Cristofari et al. (2022b)](https://ui.adsabs.harvard.edu/abs/2022MNRAS.516.3802C/abstract)
 - [Cristofari et al. (2023)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.522.1342C/abstract)
 - [Cristofari et al. (2023b)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.526.5648C/abstract)
+- [Cristofari et al. (2025)](https://ui.adsabs.harvard.edu/abs/2025A%26A...702A.111C/abstract)
 
 ## INSTALATION
 
