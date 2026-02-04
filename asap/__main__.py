@@ -8,6 +8,7 @@ from asap.spectral_analysis_pack import broaden_spectra
 import sys
 import os
 import argparse ## To read optional arguments
+from asap import io_tools
 # from schwimmbad import MPIPool
 
 from dynesty import NestedSampler, DynamicNestedSampler
@@ -16,8 +17,12 @@ import ultranest
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("star", type=str)
+parser.add_argument("star", nargs='?', type=str, default=None)
 parser.add_argument("folderid", nargs='?', type=str, default=None)
+# parser.add_argument("-e", "--extension", type=str, default=None)
+parser.add_argument("-i", "--interactive", action='store_true', 
+                    help='Turn on interactive mode allowing the user to see '\
+                        +'files that can be read in the input directory.' )
 parser.add_argument("-c", "--nbofcores", type=int, default=None)
 parser.add_argument("-m", "--mpi", type=bool, default=False)
 parser.add_argument("-p", "--profile", type=bool, default=False)
@@ -27,9 +32,12 @@ parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
 args = parser.parse_args()
 ncores = args.nbofcores
 dynesty = args.dynesty
-star = args.star.strip()
-if star[-5:] == '.fits':
-    star = star[:-5]
+if args.star is not None:
+    star = args.star.strip()
+    if star[-5:] == '.fits':
+        star = star[:-5]
+else:
+    star = None
 folderid = args.folderid
 mpi = args.mpi
 profile = args.profile
@@ -43,7 +51,23 @@ run_ultranest = args.run_ultranest
 
 locpath = os.getcwd()
 config_file = locpath + '/config.ini'
+infile = None
 
+if star is None:
+    if args.interactive:
+        SA = SpectralAnalysis()
+        SA.read_config(config_file)
+        ## Grab the input directory
+        _pathtodata = SA.pathtodata
+        fname = io_tools.interactive_list_file(_pathtodata)
+        if fname is None:
+            raise Exception('No observation file found')
+        star = fname.split('/')[-1].replace('_templates.fits', '')
+        star = star.replace('.fits', '')
+        infile = fname
+    else:
+        raise Exception('No observation file provided. Try running with -i.')
+    
 ###############################
 #### ---- USER INPUTS ---- ####
 ###############################
@@ -93,20 +117,30 @@ labels = SA.return_labels()
 # infile = SA.pathtodata + "{}_templates.fits".format(star)
 # if not os.path.isfile(infile):
 #     infile = SA.pathtodata + "{}.fits".format(star)
-infile = SA.pathtodata + "{}.fits".format(star)
-infile2 = SA.pathtodata + "{}_templates.fits".format(star)
-fileFound = False
-if os.path.isfile(infile):
-    print(f"File found: {infile}")
-    fileFound = True
-if os.path.isfile(infile2):
-    print(f"File found: {infile2} -- using this one")
-    infile3 = infile2
-    infile = infile2
-    infile2 = infile3
-    fileFound = True
-if not fileFound:
-    raise Exception(f'Template file {infile} or {infile2} not found')
+if infile is None:
+    infile = SA.pathtodata + "{}.fits".format(star)
+    infile2 = SA.pathtodata + "{}_templates.fits".format(star)
+    fileFound = False
+    if os.path.isfile(infile):
+        print(f"File found: {infile}")
+        fileFound = True
+    if os.path.isfile(infile2):
+        print(f"File found: {infile2} -- using this one")
+        infile3 = infile2
+        infile = infile2
+        infile2 = infile3
+        fileFound = True
+    if not fileFound:
+        if args.interactive:
+            fname = io_tools.interactive_list_file(SA.pathtodata)
+            if fname is None:
+                raise Exception('No observation file found')
+            star = fname.split('/')[-1].replace('_templates.fits', '')
+            star = star.replace('.fits', '')
+            infile = fname
+            SA.set_star(star)
+        else:
+            raise Exception(f'Template file {infile} or {infile2} not found')
 ## Regions file
 region_file = SA.linelist
 #
