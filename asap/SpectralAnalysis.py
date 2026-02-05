@@ -63,6 +63,7 @@ from importlib.resources import files
 from asap.spectral_analysis_pack import fill_nans_wavelength
 from asap.spectral_analysis_pack import fill_nans_wavelength_v2
 from asap.spectral_analysis_pack import fill_nans_wavelength_v3
+from asap.line_selection_tools import find_optimal_order
 
 import shutil
 
@@ -1549,13 +1550,25 @@ class SpectralAnalysis:
                 norders[i] = np.arange(len(clims))[(pos)][-1]
 
             orders = norders
+
+            ## If provided instrument is wrong, orders may be incompatible 
+            ## Check that orders consistent bounds.
+            recomputeOrders = False
+            for i in range(len(orders)):
+                _b = bounds[i]
+                _o = orders[i]
+                _w = med_wvl[_o]
+                if (_b[0]<_w[0]) | (_b[1]>_w[-1]):
+                    print('WARNING - Optimal orders identification from '
+                          +'Blaze file failed. Wrong instrument provided?')
+                    print('Using `find_optimal_order instead.')
+                    recomputeOrders = True
+                    break
+            if recomputeOrders:
+                orders = find_optimal_order(bounds, med_wvl, med_spectrum)
         else:
             ## TODO: test if this the automatic selection below is better or
             ## equivalent to that relying on the blaze.
-            # if self.instrument=='spirou':
-            from asap.line_selection_tools import find_optimal_order
-            # if (len(med_wvl)<46) | (len(med_wvl)>49): ## The number of orders does not match SPIRou
-                ## Guess optimal errors based on where
             orders = find_optimal_order(bounds, med_wvl, med_spectrum)
 
         nanOrders = np.isnan(orders)
