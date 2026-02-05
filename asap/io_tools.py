@@ -58,8 +58,7 @@ def interactive_list_file(_pathtodata):
     print(f'------------------------')
     print(f'Found {nbfiles} files:')
     for i in range(nbfiles):
-        filename_only = os.path.basename(list_valid_files[i])
-        print(f'{i} {filename_only} - mode: {modes[i]}')
+        print(f'{i} {list_valid_files[i]} - mode: {modes[i]}')
     choice = input(f"\n Select file (0-{nbfiles}) or 'q' to quit: ").strip()
     the_file = None
     if choice.isnumeric():
