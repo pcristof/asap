@@ -4540,6 +4540,137 @@ class SpectralAnalysis:
         f.write("vinstru: {}\n".format(self.vinstru))
         f.close()
 
+        #####################################
+        #### PLOT - SPECTRAL FIT SUMMARY ####
+        #####################################
+
+        if plottrig:
+            print("-> Generating spectral fit plot")
+            try:
+                # Create spectral fit visualization
+                from matplotlib import gridspec
+                
+                # Determine number of orders and layout
+                n_orders = self.obs_wvl.shape[0]
+                n_cols = 2
+                n_rows = (n_orders + n_cols - 1) // n_cols
+                
+                fig = plt.figure(figsize=(20, 4 * n_rows))
+                outer = gridspec.GridSpec(n_rows, n_cols, wspace=0.15, hspace=0.35)
+                
+                plot_idx = 0
+                for order in range(n_orders):
+                    # Calculate grid position
+                    i_row = plot_idx // n_cols
+                    i_col = plot_idx % n_cols
+                    
+                    # Create nested GridSpec for spectrum + residual
+                    inner = gridspec.GridSpecFromSubplotSpec(
+                        2, 1, subplot_spec=outer[i_row, i_col],
+                        hspace=0.0, height_ratios=[3, 1]
+                    )
+                    ax_spec = plt.Subplot(fig, inner[0])
+                    ax_resid = plt.Subplot(fig, inner[1])
+                    fig.add_subplot(ax_spec)
+                    fig.add_subplot(ax_resid)
+                    
+                    # Get wavelength range for this order (convert Angstrom to nm)
+                    wvl_order = self.obs_wvl[order] / 10
+                    valid = np.isfinite(wvl_order)
+                    
+                    if np.sum(valid) < 10:
+                        ax_spec.text(0.5, 0.5, f'Order {order+1}\nNo valid data',
+                                    transform=ax_spec.transAxes, ha='center', va='center')
+                        plot_idx += 1
+                        continue
+                    
+                    wvl_min, wvl_max = wvl_order[valid].min(), wvl_order[valid].max()
+                    
+                    # Highlight fitted regions
+                    seg_bin = self.IDXTOFIT[1][self.IDXTOFIT[0] == order]
+                    
+                    if len(seg_bin) > 0:
+                        _w = wvl_order[seg_bin]
+                        _w = _w[~np.isnan(_w)]
+                        
+                        # Find continuous segments
+                        if len(_w) > 0:
+                            diff = np.diff(_w)
+                            idx = np.where(diff > 0.2)[0]  # 0.2 nm gap threshold
+                            
+                            if len(idx) > 0:
+                                _ws = np.split(_w, idx + 1)
+                            else:
+                                _ws = [_w]
+                            
+                            # Draw fitted regions as vertical spans
+                            for i, segment in enumerate(_ws):
+                                if len(segment) > 0:
+                                    label = 'Fitted region' if i == 0 and plot_idx == 0 else None
+                                    ax_spec.axvspan(segment[0], segment[-1], 
+                                                  color='lightgreen', alpha=0.3, zorder=0, label=label)
+                                    ax_resid.axvspan(segment[0], segment[-1], 
+                                                   color='lightgreen', alpha=0.3, zorder=0)
+                    
+                    # Plot observed spectrum
+                    valid_flux = valid & np.isfinite(self.obs_flux[order])
+                    ax_spec.plot(wvl_order[valid_flux], self.obs_flux[order][valid_flux], 
+                                color='gray', lw=0.8, alpha=0.6, label='Observed' if plot_idx == 0 else None)
+                    
+                    # Plot error bars
+                    if self.obs_err is not None:
+                        valid_err = valid_flux & np.isfinite(self.obs_err[order])
+                        ax_spec.fill_between(wvl_order[valid_err], 
+                                            self.obs_flux[order][valid_err] - self.obs_err[order][valid_err],
+                                            self.obs_flux[order][valid_err] + self.obs_err[order][valid_err],
+                                            color='gray', alpha=0.2, zorder=0)
+                    
+                    # Plot fitted model
+                    valid_fit = valid & np.isfinite(fit[order])
+                    ax_spec.plot(wvl_order[valid_fit], fit[order][valid_fit], 
+                                color='C0', lw=1.5, alpha=0.9, label='Fit' if plot_idx == 0 else None)
+                    
+                    # Plot residuals
+                    resid = self.obs_flux[order] - fit[order]
+                    valid_resid = valid & np.isfinite(resid)
+                    ax_resid.plot(wvl_order[valid_resid], resid[valid_resid], 
+                                color='C0', lw=0.8, alpha=0.7)
+                    ax_resid.axhline(0, color='gray', lw=0.8, ls='--', alpha=0.5)
+                    
+                    # Format spectrum plot
+                    ax_spec.set_ylabel('Normalized Flux', fontsize=10)
+                    ax_spec.set_title(f'Order {order+1} ({wvl_min:.1f}-{wvl_max:.1f} nm)', fontsize=11)
+                    ax_spec.set_xlim(wvl_min - 0.02*(wvl_max-wvl_min), 
+                                    wvl_max + 0.02*(wvl_max-wvl_min))
+                    ax_spec.grid(True, alpha=0.3)
+                    ax_spec.tick_params(axis='x', labelbottom=False)
+                    
+                    # Add legend only to first subplot
+                    if plot_idx == 0:
+                        ax_spec.legend(fontsize=8, loc='best')
+                    
+                    # Format residual plot
+                    ax_resid.set_ylabel('Residuals', fontsize=9)
+                    ax_resid.set_xlabel('Wavelength (nm)', fontsize=10)
+                    ax_resid.set_xlim(ax_spec.get_xlim())
+                    
+                    # Auto-scale residuals
+                    resid_std = np.nanstd(resid[valid_resid])
+                    ax_resid.set_ylim(-5*resid_std, 5*resid_std)
+                    ax_resid.grid(True, alpha=0.3)
+                    
+                    plot_idx += 1
+                
+                plt.tight_layout()
+                plt.savefig(self.opath+'spectral_fit.pdf', bbox_inches='tight', dpi=300)
+                plt.close()
+                data['gen_files'].append('spectral_fit.pdf')
+                print("✅ Spectral fit plot saved successfully")
+                
+            except Exception as e:
+                print(f"⚠️  Failed to generate spectral fit plot: {str(e)}")
+                plt.close()
+
         print('ANALYSIS COMPLETE')
 
         return 0
