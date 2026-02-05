@@ -10,6 +10,9 @@ Some versions of this package were also used in:
 - [Cristofari et al. (2023b)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.526.5648C/abstract)
 - [Cristofari et al. (2025)](https://ui.adsabs.harvard.edu/abs/2025A%26A...702A.111C/abstract)
 
+##### Thanks to contributors:
+- Dion Cobelens (Leiden Unversity)
+
 ## INSTALATION
 
 ### Notes:
