@@ -4505,6 +4505,17 @@ class SpectralAnalysis:
             p = len(mcmcs) ## number of parameters
             new_normFactor = minchi2 * self.normFactor / (nbPointsFitted - p)
             self.save_normFactor(new_normFactor)
+            ## Compute BIC (Bayesian Information Criterion)
+            ## BIC = -2*ln(L_max) + 2*n*ln(N)
+            ## where L_max is the maximum likelihood, n is the number of
+            ## model parameters, and N is the number of data points.
+            max_lnlike = np.max(log_prob_walkers)
+            n_fill = len(self.bs)
+            bic = -2.0 * max_lnlike + 2.0 * n_fill * np.log(nbPointsFitted)
+        else:
+            p = 0
+            max_lnlike = np.nan
+            bic = np.nan
         
         strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
         strecoeffs = [str(ecoeffs[i]) for i in range(len(ecoeffs))]
@@ -4518,6 +4529,11 @@ class SpectralAnalysis:
         f.write("{} {} {} {}\n".format(resdict['e_teff'], resdict['e_logg'], resdict['e_mh'], resdict['e_alpha']))
         f.write("chi2 min: {:0.5f}\n".format(minchi2))
         f.write("chi2 min no field: {:0.5f}\n".format(minchi2exp))
+        f.write("BIC: {:0.5f}\n".format(bic))
+        f.write("max ln(L): {:0.5f}\n".format(max_lnlike))
+        f.write("n_params: {}\n".format(p))
+        f.write("n_data: {}\n".format(nbPointsFitted))
+        f.write("bs: {}\n".format(' '.join([str(b) for b in self.bs])))
         f.close()
 
         ## See output.txt for a description of the lines
@@ -4551,6 +4567,11 @@ class SpectralAnalysis:
         f.write("------: {}\n".format(" "))#.format(self.fitDeriv))
         f.write("Error type: {}\n".format(self.errType))
         f.write("vinstru: {}\n".format(self.vinstru))
+        f.write("BIC: {:0.5f}\n".format(bic))
+        f.write("max ln(L): {:0.5f}\n".format(max_lnlike))
+        f.write("n_params: {}\n".format(p))
+        f.write("n_data: {}\n".format(nbPointsFitted))
+        f.write("bs: {}\n".format(' '.join([str(b) for b in self.bs])))
         f.close()
 
         print('ANALYSIS COMPLETE')
