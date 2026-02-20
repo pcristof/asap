@@ -194,6 +194,41 @@ def read_res(filename):
               }
     return output
 
+
+def read_res_v2(filename):
+    '''New function aimed at replacing the old function.
+    This function reads data from the results.txt file using type and keys.
+    This allows for more flexibility while ensuring self.consistency.
+    Input filename used : as a seperator between type, key and attributes'''
+    supported_types = ['str', 'flt', 'cst', 'int', 'arr']
+    data = {}
+    with open(filename, 'r') as f:
+        for line in f.readlines():
+            if line.strip()[0]=='#': continue ## Comments handling
+            if line.strip()[0]=='': continue ## Empty line handling
+            sl = line.split(':')
+            ## Check file consistency
+            print(len(sl))
+            print(sl)
+            if len(sl)!=3: raise Exception('Error reading file; '
+                                        +'should contain 3 :-seperated columns')
+            _type = sl[0].strip(); _var = sl[1].strip(); _value = sl[2].strip()
+            if _type not in supported_types: 
+                raise Exception('Error reading file; supported types are:'
+                                        +' '.join(supported_types))
+            ## Read for each type:
+            if _type=='str': data[_var] = _value.strip()
+            elif _type=='cst': data[_var] = float(_value) 
+            elif _type=='int': data[_var] = int(_value) 
+            elif _type=='flt':
+                _val, _val_err = _value.split()
+                data[_var] = float(_val) 
+                data[_var+'_err'] = float(_val_err) 
+            elif _type=='arr':
+                _val_arr = _value.split()
+                data[_var] = [float(_val) for i in range(len(_val_arr))] 
+    return data
+
 def readstr(instr):
     '''Small helper function to check that the strings are correctly formatted
     in the config files.
@@ -328,7 +363,7 @@ class SpectralAnalysis:
 
     def __init__(self, **kargs):
         self.runTime = 0.
-        SA.input_filename = None
+        self.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
         self.teffs = np.arange(2700., 4000., 100.); 
@@ -1281,7 +1316,7 @@ class SpectralAnalysis:
         Input:
         - filename      :   [string] absolute path of the file to load.'''
 
-        SA.input_filename = filename
+        self.input_filename = filename
 
         ## Try to resolve the filename
         if not os.path.isfile(filename):
@@ -4585,8 +4620,8 @@ class SpectralAnalysis:
                         'arr:mag_ff',
                         'arr:mag_ff_err',
                         'str:veiling_bands',
-                        'arr:resveil',
-                        'arr:resveil_err',
+                        'arr:veiling',
+                        'arr:veiling_err',
                         'sep:-',
                         'str:input_instrument',
                         'str:input_fitRV',
@@ -4668,7 +4703,7 @@ class SpectralAnalysis:
 
         ## Now I want to add some metadata to the file.
         from datetime import datetime
-        resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss")
         resdict['run_time'] = self.runTime
         resdict['star'] = self.star
         resdict['input_filename'] = self.input_filename
@@ -4729,7 +4764,6 @@ class SpectralAnalysis:
                 for j in range(len(resdict[_var])):
                     ostr+=f'{resdict[_var][j]:<{CH}.{RP}f} '
             ostr+='\n'
-        print(ostr)
 
         with open(self.opath+'results.txt', 'w') as g:
             g.write(ostr)
