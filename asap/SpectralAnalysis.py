@@ -64,6 +64,7 @@ from asap.spectral_analysis_pack import fill_nans_wavelength
 from asap.spectral_analysis_pack import fill_nans_wavelength_v2
 from asap.spectral_analysis_pack import fill_nans_wavelength_v3
 from asap.line_selection_tools import find_optimal_order
+import corner
 
 import shutil
 
@@ -1956,6 +1957,9 @@ class SpectralAnalysis:
         print('Done grid')
 
         self.cells = build_sphere_grid(self.mu_angles, self.nb_mus)
+        ## SORT the cells -- just in case, but I think they are already sorted
+        idx = np.argsort(self.cells['mu_idx'])
+        self.cells = self.cells[idx]
 
         return nwvls
 
@@ -3983,7 +3987,6 @@ class SpectralAnalysis:
             ###################################
             #### PLOT 1 - FULL CORNER PLOT ####
             ###################################
-            import corner
 
             cornerfont = 25
             CORNER_KWARGS = dict(

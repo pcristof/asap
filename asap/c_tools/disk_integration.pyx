@@ -589,8 +589,8 @@ def integrate_sphere_fast_regions_2(
                         num[k] += stokesi_b_mem[r, mu_idx, j] * (1.0 - t) + stokesi_b_mem[r, mu_idx, j+1] * t * area
                         den[k] += cont[r, mu_idx, j] * (1.0 - t) + stokesi_b_mem[r, mu_idx, j+1] * t * area
                     else:
-                        num[k] += stokesi_b_mem[r, mu_idx, k]
-                        den[k] += cont[r, mu_idx, k]
+                        num[k] += stokesi_b_mem[r, mu_idx, k]*area
+                        den[k] += cont[r, mu_idx, k]*area
             for i in range(nwl, lastbins[r]-edge, -1):
                 num[i]=0.
             for i in range(0, edge,1):
@@ -604,10 +604,8 @@ def integrate_sphere_fast_regions_2_opt(
     ## CLEVER TRICKS; 40% faster than version 1 !
     ## Linear interpoaltion is embeded in the code
     ## -> allows faster computation by avoiding memory asignments. 
+    ## We loop through the mu angles to create an interpolator.
     ## 
-        #    np.ndarray[double, ndim=1] wvl,
-        #    np.ndarray[double, ndim=2] stokesi,
-        #    np.ndarray[double, ndim=2] cont,
             double[:, :] wvl,
             np.ndarray[double, ndim=3] stokesi,
             double[:, :, :] cont,
@@ -623,9 +621,9 @@ def integrate_sphere_fast_regions_2_opt(
 
     cdef Cell[:] cells = cells_np
     
-    cdef int k, nwl, i, edge, j
+    cdef int k, nwl, i, edge, j, var
     cdef double area
-    cdef double sai, vrad, dop, vel_step
+    cdef double sai, vrad, dop, vel_step, dx
     cdef int r
     
     cdef Py_ssize_t ncells = cells.shape[0]
@@ -635,10 +633,14 @@ def integrate_sphere_fast_regions_2_opt(
     nwl = wvl.shape[1]
 
     # --- Use numpy arrays here, not memoryviews ---
+    cdef double[:] stokesi_b_mem_1d = np.empty(nwl, dtype=np.float64)
+    cdef double[:] cont_b_mem_1d = np.empty(nwl, dtype=np.float64)
     cdef double[:] num = np.empty(nwl, dtype=np.float64)
     cdef double[:] den = np.empty(nwl, dtype=np.float64)
-    cdef double[:] slopes = np.empty(nwl, dtype=np.float64)
-    cdef double[:] offsets = np.empty(nwl, dtype=np.float64)
+    cdef double[:] slopes = np.empty(nwl-1, dtype=np.float64)
+    cdef double[:] offsets = np.empty(nwl-1, dtype=np.float64)
+    cdef double[:] slopes_cont = np.empty(nwl-1, dtype=np.float64)
+    cdef double[:] offsets_cont = np.empty(nwl-1, dtype=np.float64)
 
     cdef double[:] wvl_r = np.empty(nwl, dtype=np.float64)
     cdef Py_ssize_t[:] lastbins = np.empty(nreg, dtype=np.intp)
@@ -683,31 +685,63 @@ def integrate_sphere_fast_regions_2_opt(
     with nogil:
         for r in range(nreg):
             wvl_r = wvl[r]
+            ## Initialize the numerator and denominator
             for k in range(nwl):
                 num[k] = 0.
                 den[k] = 0.
-            ## Precompute interpolation weights for this region:
+            var = 0
             for icell in range(ncells):
+                ## For this cell:
                 mu_idx = cells[icell].mu_idx
                 area   = cells[icell].area
                 # vrad   = cells[icell].vrad_norm * veq * sai
                 dop   = cells[icell].dop
-                interp_linear_precompute(wvl_r, stokesi_b_mem[r, mu_idx], slopes, offsets)
-                j=0
-                for k in range(nwl):
-                    if dop!=1.0:
-                        while j < wvl_r.shape[0] - 2 and wvl_r[j+1]*dop < wvl_r[k]:
-                            j += 1
-                        t = (wvl_r[k] - wvl_r[j]*dop) / (wvl_r[j+1]*dop - wvl_r[j]*dop)
-                        num[k] += stokesi_b_mem[r, mu_idx, j] * (1.0 - t) + stokesi_b_mem[r, mu_idx, j+1] * t * area
-                        den[k] += cont[r, mu_idx, j] * (1.0 - t) + stokesi_b_mem[r, mu_idx, j+1] * t * area
+                ## Only if we changed mu angle do we recompute the interp
+                ## This is the spectrum we keep
+                if mu_idx!=var:
+                #     print(mu_idx)
+                    stokesi_b_mem_1d = stokesi_b_mem[r, mu_idx]
+                    cont_b_mem_1d = cont[r, mu_idx]
+                    var = mu_idx
+                    ## Compute the coefficients
+                    for k in range(nwl-1):
+                        slopes[k] = (stokesi_b_mem_1d[k+1] - stokesi_b_mem_1d[k]) / (wvl_r[k+1] - wvl_r[k])
+                        offsets[k] = stokesi_b_mem_1d[k] - slopes[k] * wvl_r[k]
+                        slopes_cont[k] = ((cont_b_mem_1d[k+1] - cont_b_mem_1d[k]) / (wvl_r[k+1] - wvl_r[k]))
+                        offsets_cont[k] = cont_b_mem_1d[k] - slopes_cont[k] * wvl_r[k]
+                j = 0
+                k = 0
+                while True:
+                    if wvl_r[j]*dop>wvl_r[nwl-1]:
+                        break ## Reached the end
+                    elif wvl_r[j]*dop<wvl_r[0]:
+                        ## While we are out of bounds on the left,
+                        ## We skip the bin and continue
+                        j+=1
+                    elif wvl_r[j]*dop<wvl_r[k]:
+                        ## We are not out of bounds on the left, but we are
+                        ## misplaced with respect to k.
+                        k-=1
+                    elif wvl_r[j]*dop>wvl_r[k+1]:
+                        ## We are not out or bounds on the left, but we are not
+                        ## correctly placed
+                        k+=1
+                    ## Now the arrays are aligned for that j,
+                    ## So we register and move to the next j and k
                     else:
-                        num[k] += stokesi_b_mem[r, mu_idx, k]
-                        den[k] += cont[r, mu_idx, k]
-            for i in range(nwl, lastbins[r]-edge, -1):
-                num[i]=0.
-            for i in range(0, edge,1):
-                num[i]=0.
+                        if wvl_r[j]==wvl_r[k]:
+                            num[j]+=stokesi_b_mem_1d[k]*area
+                            den[j]+=cont_b_mem_1d[k]*area
+                        elif (wvl_r[j]*dop>wvl_r[k]) & (wvl_r[j]*dop<wvl_r[k+1]):
+                            num[j]+=(slopes[k]*wvl_r[j]*dop+offsets[k])*area
+                            den[j]+=(slopes_cont[k]*wvl_r[j]*dop+offsets_cont[k])*area
+                        k+=1
+                        j+=1
+                        ## Break the loop if eithe j or k reached the en of the array !
+                        if k+1>nwl-1: 
+                            break
+                        if j+1>nwl-1: 
+                            break
             num_2d[r] = num
             den_2d[r] = den
     return np.asarray(num_2d) / np.asarray(den_2d)
