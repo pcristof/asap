@@ -29,11 +29,6 @@ def adjust_continuum5(wvl, obs_flux, model_flux, p=50, window_size=None,
     # if np.sqrt((np.max(model_flux) - np.min(model_flux))**2) > 0.05:
         ## we passed a line
         solidmodel = True
-        print('-------------------------------------')
-        print('-------------------------------------')
-        print('////!!!! SOLIDMODEL = TRUE !!!!!!\\\\\\\\')
-        print('-------------------------------------')
-        print('-------------------------------------')
     ## CAUTION - The function here assumes that obs_flux and model_flux
     ## have the same sampling on the wvl grid
 
