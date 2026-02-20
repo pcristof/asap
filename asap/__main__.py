@@ -510,6 +510,9 @@ else:
     etime = time.time()
 # Save to output
 print("Time = {:.2f} seconds".format(etime - itime))
+## I save the time to the SA object, because I want this to be stored in the
+## same file
+SA.runTime = etime - itime
 f = open(opath+'time.txt', 'w')
 f.write("Initial guess: " + str(initial) + " \n")
 f.write("Time = {:.2f} seconds\n".format(etime - itime))

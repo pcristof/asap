@@ -327,6 +327,8 @@ class SpectralAnalysis:
     can be changed using the update functions.'''
 
     def __init__(self, **kargs):
+        self.runTime = 0.
+        SA.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
         self.teffs = np.arange(2700., 4000., 100.); 
@@ -1278,6 +1280,8 @@ class SpectralAnalysis:
         Cristofari) from fits file.
         Input:
         - filename      :   [string] absolute path of the file to load.'''
+
+        SA.input_filename = filename
 
         ## Try to resolve the filename
         if not os.path.isfile(filename):
@@ -4555,6 +4559,180 @@ class SpectralAnalysis:
         f.write("Error type: {}\n".format(self.errType))
         f.write("vinstru: {}\n".format(self.vinstru))
         f.close()
+
+        ## PIC: Adding a new file with more information, and trying to make it
+        ## easier to read with a by-key formating, instead of reading the file
+        ## with fixed line numbers.
+        ## The name of the keys will be defined should be defined in an 
+        ## attribute so that explanations about the keys can be stored elswhwere
+        ## I choose to add things in the format:
+        ## key val val_err
+        ## to keep the file length limited.
+        ## The goal is to make the reading the file *independent* from the order
+        ## of the lines and from the number of lines.
+        ## We should also be able to easily change the name of the keys
+        resfile_keys = ['sep:#', 'str:datetime', 'cst:run_time', 
+                        'str:star', 'str:input_filename', 
+                        'sep:-',
+                        'flt:teff', 'flt:logg', 'flt:mh', 'flt:afe', 
+                        'flt:vsini', 'flt:vmac', 'str:vmac_mode', 
+                        'flt:guess_rv', 'flt:rv',
+                        'flt:mag_max_lnlike', 
+                        'flt:mag_average',
+                        'cst:chi2_min', 'int:nb_points',
+                        'cst:norm_factor',
+                        'arr:mag_components',
+                        'arr:mag_ff',
+                        'arr:mag_ff_err',
+                        'str:veiling_bands',
+                        'arr:resveil',
+                        'arr:resveil_err',
+                        'sep:-',
+                        'str:input_instrument',
+                        'str:input_fitRV',
+                        # 'cst:input_rv',
+                        'str:input_fitRot',
+                        # 'cst:input_vsini',
+                        'str:input_fitMac',
+                        'str:input_vmacMode',
+                        'str:input_fitFields',
+                        'str:input_reNorm',
+                        'str:input_fitVeiling',
+                        'str:input_fitBands',
+                        'str:input_veilingBands',
+                        'arr:input_veilingFac',
+                        'str:input_fitTeff',
+                        'str:input_fitLogg',
+                        'str:input_fitMh',
+                        'str:input_fitAlpha',
+                        'arr:input_teffArray',
+                        'arr:input_loggArray',
+                        'arr:input_mhArray',
+                        'arr:input_alphaArray',
+                        'sep:-',
+                        'int:input_nbWalkers',
+                        'int:input_nbSteps',
+                        'int:input_nbCores',
+                        'str:input_saveBackend',
+                        'sep:-',
+                        'str:input_pathToGrid',
+                        'str:input_pathToData',
+                        'str:input_lineListFile',
+                        'str:input_normFactorFile',
+                        'str:input_adjCont',
+                        'str:input_guessRV',
+                        'str:input_resampleVel',
+                        'str:input_errType',
+                        'sep:#',
+                        ]
+        ## This is a temporary fix, not ideal, and should be changed in the
+        ## future
+        corresponding_keys = {'afe': 'alpha'}
+        for key in resfile_keys:
+            _type, _var = key.split(':')
+            if _var not in resdict.keys(): 
+                if _var in corresponding_keys:
+                    resdict[_var] = resdict[corresponding_keys[_var]]
+                    resdict['e_'+_var] = resdict['e_'+corresponding_keys[_var]]
+                elif _var=='vmac_mode': resdict['vmac_mode']=self.vmacMode
+                elif _var=='guess_rv': 
+                    resdict['guess_rv']=self.guessed_rv
+                    resdict['e_guess_rv']=0.
+                elif _var=='mag_max_lnlike': 
+                    resdict['mag_max_lnlike']=meanfield
+                    resdict['e_mag_max_lnlike']=emeanfield
+                elif _var=='mag_average': 
+                    resdict['mag_average']=avfield
+                    resdict['e_mag_average']=eavfield
+                elif _var=='chi2_min': 
+                    resdict['chi2_min']=minchi2
+                elif _var=='nb_points': resdict['nb_points']=nbPointsFitted
+                elif _var=='norm_factor': resdict['norm_factor']=self.normFactor
+                elif _var=='mag_components': 
+                    resdict['mag_components']=self.bs
+                elif _var=='mag_ff': 
+                    resdict['mag_ff']=coeffs
+                elif _var=='mag_ff_err': 
+                    resdict['mag_ff_err']=ecoeffs
+                elif _var=='veiling': 
+                    resdict['veiling']=resveil
+                elif _var=='veiling_err': 
+                    resdict['veiling_err']=eresveil
+                elif _var=='veiling_bands': 
+                    resdict['veiling_bands']=self.veilingBands
+                    
+        self.floatResultsPrecision = 4
+        RP = self.floatResultsPrecision ## results precision
+        CH = RP+8
+        CK = 20
+
+        ## Now I want to add some metadata to the file.
+        from datetime import datetime
+        resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        resdict['run_time'] = self.runTime
+        resdict['star'] = self.star
+        resdict['input_filename'] = self.input_filename
+        ## And also some of the user inputs directly
+        resdict['input_instrument'] = self.instrument
+        resdict['input_fitRV'] = self.fitrv
+        # resdict['input_rv'] = self.rv ## value may have been updated
+        resdict['input_fitRot'] = self.fitrot
+        # resdict['input_vsini'] = self.vsini ## Value may have been updated 
+        resdict['input_fitMac'] = self.fitmac
+        # resdict['input_vmac'] = self.vmac ## Value may have been updated 
+        resdict['input_vmacMode'] = self.vmacMode
+        resdict['input_fitFields'] = self.fitFields
+        resdict['input_reNorm'] = self.renorm
+        resdict['input_fitVeiling'] = self.fitVeiling
+        resdict['input_fitBands'] = self.fitBands
+        resdict['input_veilingBands'] = self.veilingBands
+        resdict['input_veilingFac'] = self.veilingFac
+        resdict['input_fitTeff'] = self.fitTeff
+        resdict['input_fitLogg'] = self.fitLogg
+        resdict['input_fitMh'] = self.fitMh
+        resdict['input_fitAlpha'] = self.fitAlpha
+        resdict['input_teffArray'] = self.teffs
+        resdict['input_loggArray'] = self.loggs
+        resdict['input_mhArray'] = self.mhs
+        resdict['input_alphaArray'] = self.alphas
+        resdict['input_nbWalkers'] = self.nwalkers
+        resdict['input_nbSteps'] = self.nsteps
+        resdict['input_nbCores'] = self.ncores
+        resdict['input_saveBackend'] = self.savebackend
+        resdict['input_pathToGrid'] = self.pathtogrid
+        resdict['input_pathToData'] = self.pathtodata
+        resdict['input_lineListFile'] = self.linelist
+        resdict['input_normFactorFile'] = self.normfacfile
+        resdict['input_adjCont'] = self.adjcont
+        resdict['input_guessRV'] = self.guessRV
+        resdict['input_resampleVel'] = self.resampleVel
+        resdict['input_errType'] = self.errType
+
+        ## Now create the output file
+        ostr=""
+        for key in resfile_keys:
+            _type, _var = key.split(':')
+            _evar = 'e_'+_var
+            if _type=='sep': ostr+='#'+''.join([_var for i in range(4*CH)])
+            elif _type=='flt': ## Float with associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : '
+                ostr+=f'{resdict[_var]:<{CH}.{RP}f} '
+                ostr+=f'{resdict[_evar]:<{CH}.{RP}f} '
+            elif _type=='str': ## String
+                ostr+=f'{_type} : {_var:>{CK}} : {resdict[_var]} '
+            elif _type=='cst': ## Float with *no* associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : {resdict[_var]:<{CH}.{RP}f} '
+            elif _type=='int': ## Int with *no* associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : {resdict[_var]:<{CH}} '
+            elif _type=='arr': ## Array of integets with *no* associated uncertainty
+                ostr+=f'{_type} : {_var:>{CK}} : '
+                for j in range(len(resdict[_var])):
+                    ostr+=f'{resdict[_var][j]:<{CH}.{RP}f} '
+            ostr+='\n'
+        print(ostr)
+
+        with open(self.opath+'results.txt', 'w') as g:
+            g.write(ostr)
 
         print('ANALYSIS COMPLETE')
 
