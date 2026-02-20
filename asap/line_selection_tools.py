@@ -1,5 +1,6 @@
 import numpy as np
 from numba import jit
+import warnings
 
 @jit(nopython=True)
 def sign(a):
@@ -561,6 +562,7 @@ def find_optimal_order(regions, wvl, flx):
         for order in range(len(wvl)):
             _idx = ~np.isnan(flx[order])
             _wvl = wvl[order][_idx]
+            if len(_wvl)<4: continue ## all NaNs in this order
             ## Is this region in this order?
             if (reg[0]>_wvl[0]) & (reg[1]<_wvl[-1]):
                 if optorder is None: 
@@ -571,5 +573,8 @@ def find_optimal_order(regions, wvl, flx):
                     if minval>optminval:
                         optorder = order
                         optminval = min(reg[0]-_wvl[0], _wvl[-1]-reg[-1]) 
+        if optorder is None:
+            warnings.warn("Optimal order could not be found.\n"
+                        +"Coud implement slicing of the region in the future.")
         orders[ii] = optorder       
     return orders
