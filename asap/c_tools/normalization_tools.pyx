@@ -322,7 +322,7 @@ def adjust_continuum6_fast_inplace(
     double[:] wvl,
     double[:] obs_flux,
     double[:] model_flux,
-    double p = 50.0,
+    int degree = 5,
     int nWindows = 6
     ):
     cdef ITYPE_t N = obs_flux.shape[0]
@@ -355,8 +355,102 @@ def adjust_continuum6_fast_inplace(
             j+=1
             
     wvl_norm = normalize_axis_cy(wvl_view, wvl_view)
-    coeffs = fit_1d_polynomial_cy(wvl_norm, residuals, 5)
+    coeffs = fit_1d_polynomial_cy(wvl_norm, residuals, degree)
 
     continuum = poly1d_horner(wvl_norm, coeffs[::-1])
 
     return continuum
+
+
+
+# ---- Main function ----
+@cython.boundscheck(False)
+@cython.wraparound(False)
+def adjust_continuum7_fast_inplace(
+    double[:] wvl,
+    double[:] obs_flux,
+    int nbins = 5,
+    ):
+    '''Now in this version I want to obtain a smooth continuum by rejecting
+    the spectral lines'''
+
+    cdef ITYPE_t N = obs_flux.shape[0]
+    cdef ITYPE_t i, nb, idx, nb_nan, new_N
+
+    cdef double sumx
+    # for i in range(N):
+    #     obs_view[i] = obs_flux[i]  # simple fast copy
+    #     mod_view[i] = model_flux[i]  # simple fast copy
+    #     wvl_view[i] = wvl[i]  # simple fast copy
+    ## Count NaNs:
+    nb_nan = 0
+    for i in range(N):
+        if obs_flux[i]!=obs_flux[i]: ## Is a NaN
+            nb_nan+=1
+    new_N = N-nb_nan    
+
+    ## New arrays with only non-NaN elements:
+    cdef double[:] residuals = np.empty(new_N, dtype=np.float64)
+    cdef np.ndarray[DTYPE_t, ndim=1] continuum = np.empty(new_N)
+    nb = 0
+    sumx = 0.
+    for i in range(2*nbins):
+        if obs_flux[i]==obs_flux[i]: ## is not a NaN
+            sumx+=obs_flux[i]
+            nb+=1
+            residuals[i]=0.
+        if i<nbins:
+            continuum[i] = 1.
+    for i in range(nbins, N-nbins):
+        if obs_flux[i-nbins]==obs_flux[i-nbins]:
+            sumx-=obs_flux[i-nbins] ## Remove the previous
+            nb-=1
+        if obs_flux[i+nbins]==obs_flux[i+nbins]:
+            sumx+=obs_flux[i+nbins]
+            nb+=1
+        residuals[i] = sumx/nb
+        continuum[i] = residuals[i]
+    for i in range(N-nbins, N):
+        continuum[i]=1.
+
+    return continuum
+
+@cython.boundscheck(False)
+@cython.wraparound(False)
+@cython.cdivision(True)
+def adjust_continuum7_fast_inplace_opt(
+    double[:] obs_flux,
+    int nbins=5,
+):
+    cdef Py_ssize_t N = obs_flux.shape[0]
+    cdef Py_ssize_t i, left, right
+    cdef double val
+
+    cdef double[:] continuum = np.ones(N, dtype=np.float64)
+    cdef double[:] cumsum_flux = np.zeros(N + 1, dtype=np.float64)
+    cdef int[:] cumsum_count = np.zeros(N + 1, dtype=np.int32)
+
+    # ---- Build prefix sums ----
+    for i in range(N):
+        val = obs_flux[i]
+
+        if val == val:  # not NaN
+            cumsum_flux[i+1] = cumsum_flux[i] + val
+            cumsum_count[i+1] = cumsum_count[i] + 1
+        else:
+            cumsum_flux[i+1] = cumsum_flux[i]
+            cumsum_count[i+1] = cumsum_count[i]
+
+    # ---- Compute window means ----
+    for i in range(nbins, N - nbins):
+        left  = i - nbins
+        right = i + nbins + 1
+
+        val = cumsum_count[right] - cumsum_count[left]
+
+        if val > 0:
+            continuum[i] = (
+                cumsum_flux[right] - cumsum_flux[left]
+            ) / val
+
+    return np.asarray(continuum)
