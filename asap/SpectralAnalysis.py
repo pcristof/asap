@@ -4469,7 +4469,7 @@ class SpectralAnalysis:
                 mcmcsForLnLike = mcmcs[1:] ## Without magnetic field component
             else:
                 mcmcsForLnLike = mcmcs
-            _  = self.lnlike(mcmcsForLnLike)
+            maxLnLikelihood  = self.lnlike(mcmcsForLnLike)
             minchi2 = np.sum(self._res)
             coeffsnomag = coeffs*0
             coeffsnomag[0] = 1
@@ -4505,6 +4505,7 @@ class SpectralAnalysis:
             resdict['vmac'] = self.vmac; resdict['e_vmac'] = 0.
             resdict['rv'] = self.rv; resdict['e_rv'] = 0.
             minchi2 = np.nan
+            maxLnLikelihood = np.nan
             minchi2exp = np.nan
             meanfield = np.nan
             emeanfield = np.nan
@@ -4548,6 +4549,17 @@ class SpectralAnalysis:
             new_normFactor = minchi2 * self.normFactor / (nbPointsFitted - p)
             self.save_normFactor(new_normFactor)
         
+        ## Compute BIC (Bayesian Information Criterion)
+        ## as defined in 2017ARA&A..55..213S
+        ## BIC = -2*ln(L_max) + n*ln(N)
+        ## with L_max the maximum likelihood, n the number of degrees of 
+        ## freedom, and N the number of data points.
+        ## I am here considering that the number of degrees of freedom is the
+        ## number of all fit parameters (Teff+logg+mh...+filling factors) based
+        ## on what the user is computing. This is the length of `mcmcs`
+        nof = len(mcmcs)
+        bic = -2.0 * maxLnLikelihood + 2.0 * nof * np.log(nbPointsFitted)
+
         strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
         strecoeffs = [str(ecoeffs[i]) for i in range(len(ecoeffs))]
         resFillTeffsString = [str(resFillTeffs[i]) for i in range(len(resFillTeffs))]
@@ -4614,14 +4626,18 @@ class SpectralAnalysis:
                         'flt:guess_rv', 'flt:rv',
                         'flt:mag_max_lnlike', 
                         'flt:mag_average',
-                        'cst:chi2_min', 'int:nb_points',
-                        'cst:norm_factor',
                         'arr:mag_components',
                         'arr:mag_ff',
                         'arr:mag_ff_err',
                         'str:veiling_bands',
                         'arr:veiling',
                         'arr:veiling_err',
+                        'sep:-',
+                        'cst:lnlike_max', 
+                        'cst:chi2_min', 
+                        'int:nb_points',
+                        'cst:norm_factor',
+                        'cst:bic',
                         'sep:-',
                         'str:input_instrument',
                         'str:input_fitRV',
@@ -4706,6 +4722,9 @@ class SpectralAnalysis:
         resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss")
         resdict['run_time'] = self.runTime
         resdict['star'] = self.star
+        resdict['lnlike_max'] = maxLnLikelihood
+        resdict['bic'] = bic
+        #
         resdict['input_filename'] = self.input_filename
         ## And also some of the user inputs directly
         resdict['input_instrument'] = self.instrument
