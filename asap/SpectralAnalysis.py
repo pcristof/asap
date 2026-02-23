@@ -846,11 +846,12 @@ class SpectralAnalysis:
                 bs = bs[:nfields]
             self.update_bs(bs) ## Only one value of magnetic field == non-magnetic case
             self.update_fillFactors(fillFactors)
-        if len(magFields)==0:
-            pass
-        else:
-            bs = magFields
-            self.update_bs(bs)                
+        if magFields is not None:
+            if len(magFields)==0: ## backwards compatibility:
+                pass
+            else:
+                bs = magFields
+                self.update_bs(bs)                
 
         self.set_fitrot(fitRot)
         self.set_vsini(vsini)
