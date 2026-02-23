@@ -851,7 +851,7 @@ class SpectralAnalysis:
                 pass
             else:
                 bs = magFields
-                self.update_bs(bs)                
+                self.update_bs(bs)
 
         self.set_fitrot(fitRot)
         self.set_vsini(vsini)
@@ -1504,9 +1504,16 @@ class SpectralAnalysis:
     def create_regions(self, region_file, med_wvl, med_spectrum, med_err, 
                        radvel):
         '''Function creates the regions for the observations.
+        KONWN ISSUES: This function will not check that the model is available
+        for the requested regions. If the user requests a region that contains
+        NaNs in the model or that is in a gap (missing portion of a spectral
+        domain), this will result in a spurious fit.
+        TODO: implement a check to remove regions requested by the user if
+        models are not available.
         Input:
         - region_file       :   Input file to create regions. Format must be
-                                compatible with line_tools.read_lines().'''
+                                compatible with line_tools.read_lines().
+                                '''
         # region_file = paths.irap_tools_data_path \
         #             + 'line_lists/newlist_01042022_noCa.txt'
         bounds, orders = line_tools.read_lines(region_file)
@@ -1624,7 +1631,6 @@ class SpectralAnalysis:
         if np.any(nanOrders):
             bounds = bounds[~nanOrders]
             orders = orders[~nanOrders]
-
 
         f = open(region_file)
         elwvls = []
