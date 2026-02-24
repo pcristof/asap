@@ -3626,8 +3626,9 @@ class SpectralAnalysis:
             return 0.0
 
     def prior_transform(self, u):
-        '''I am trying to now implement a Nested sampling approach with dynasty instead of a MCMC.
-        This is the prior_transform function required by dynasty for uniform priors.'''
+        '''I am trying to now implement a Nested sampling approach with dynasty 
+        instead of a MCMC. This is the prior_transform function required by 
+        dynasty for uniform priors.'''
         ##
         # if u is None:
         #     _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
@@ -4573,7 +4574,7 @@ class SpectralAnalysis:
         ## number of all fit parameters (Teff+logg+mh...+filling factors) based
         ## on what the user is computing. This is the length of `mcmcs`
         nof = len(mcmcs)
-        bic = -2.0 * maxLnLikelihood + 2.0 * nof * np.log(nbPointsFitted)
+        bic = -2.0 * maxLnLikelihood + nof * np.log(nbPointsFitted)
 
         strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
         strecoeffs = [str(ecoeffs[i]) for i in range(len(ecoeffs))]
