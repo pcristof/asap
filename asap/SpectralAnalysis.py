@@ -226,7 +226,7 @@ def read_res_v2(filename):
                 data[_var+'_err'] = float(_val_err) 
             elif _type=='arr':
                 _val_arr = _value.split()
-                data[_var] = [float(_val) for i in range(len(_val_arr))] 
+                data[_var] = [float(_val_arr[i]) for i in range(len(_val_arr))] 
     return data
 
 def readstr(instr):
