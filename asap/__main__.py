@@ -112,6 +112,14 @@ SA.read_config(config_file_copy)
 ## Override magFields and/or fillFactors from CLI if provided
 if args.magfields is not None or args.fillfactors is not None:
     import configparser as configparser
+    ## Validate consistency between magfields and fillfactors
+    n_bs = len(args.magfields) if args.magfields is not None else len(SA.bs)
+    n_ff = len(args.fillfactors) if args.fillfactors is not None else len(SA.fillFactors)
+    if n_bs != n_ff:
+        raise ValueError(
+            f'Mismatch: {n_bs} magnetic field component(s) but {n_ff} filling factor(s). '
+            f'These must have the same length.'
+        )
     ## Temporarily make config copy writable to record CLI overrides
     os.chmod(config_file_copy, 0o644)
     _cfg = configparser.ConfigParser()
