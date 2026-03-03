@@ -28,6 +28,12 @@ parser.add_argument("-m", "--mpi", type=bool, default=False)
 parser.add_argument("-p", "--profile", type=bool, default=False)
 parser.add_argument("-d", "--dynesty", type=bool, default=False)
 parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
+parser.add_argument("--plotfit", action='store_true', default=False,
+                    help='Generate spectral fit plot of all fitted regions')
+parser.add_argument("--magfields", nargs='+', type=int, default=None,
+                    help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
+parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
+                    help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
 
 args = parser.parse_args()
 # ncores = args.nbofcores
@@ -104,6 +110,27 @@ SA.set_opath(opath)
 SA.set_star(star) ## Dummy variable to identify the star
 # SA.simbad_grep()
 SA.read_config(config_file_copy)
+
+## Override magFields and/or fillFactors from CLI if provided
+if args.magfields is not None or args.fillfactors is not None:
+    import configparser as configparser
+    ## Temporarily make config copy writable to record CLI overrides
+    os.chmod(config_file_copy, 0o644)
+    _cfg = configparser.ConfigParser()
+    _cfg.read(config_file_copy)
+    if args.magfields is not None:
+        SA.update_bs(np.array(args.magfields))
+        _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
+        print(f'CLI override: magFields set to {args.magfields}')
+    if args.fillfactors is not None:
+        SA.update_fillFactors(np.array(args.fillfactors))
+        _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
+        print(f'CLI override: fillFactors set to {args.fillfactors}')
+    ## Rebuild PARAMS_FIT now that bs and coeffs are final
+    SA.init_PARAMS()
+    with open(config_file_copy, 'w') as _f:
+        _cfg.write(_f)
+    os.chmod(config_file_copy, 0o444)  ## Restore read-only
 
 print('dynesty: {}'.format(dynesty))
 print(SA.dynesty)
