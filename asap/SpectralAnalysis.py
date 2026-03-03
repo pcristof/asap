@@ -1072,6 +1072,17 @@ class SpectralAnalysis:
             bs = np.array([bs])
         self.bs = bs
         self.get_grid_dims()
+        ## Reset coeffs to match the new number of fields so that init_PARAMS
+        ## can be called cleanly (all non-magnetic by default; overridden by
+        ## update_fillFactors if called afterwards).
+        new_coeffs = np.zeros(len(bs))
+        new_coeffs[0] = 1.0
+        self.coeffs = new_coeffs
+        ## Re-build PARAMS_FIT so it reflects the updated number of magnetic
+        ## field components.  Guard against being called before init_PARAMS has
+        ## run for the first time (PARAMS is empty then).
+        if hasattr(self, 'PARAMS') and len(self.PARAMS) > 0:
+            self.init_PARAMS()
     def update_fillFactors(self, fillFactors):
         '''WARNING, this constructor sets all filling factors including the fits zero component.'''
         if len(fillFactors)!=(len(self.bs)):
