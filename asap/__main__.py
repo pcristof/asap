@@ -27,7 +27,11 @@ parser.add_argument("-c", "--nbofcores", type=int, default=None)
 parser.add_argument("-m", "--mpi", type=bool, default=False)
 parser.add_argument("-p", "--profile", type=bool, default=False)
 parser.add_argument("-d", "--dynesty", type=bool, default=False)
-parser.add_argument("-u", "--run_ultranest", type=bool, default=False)
+parser.add_argument("-u", "--run_ultranest", action='store_true', default=False)
+parser.add_argument("--magfields", nargs='+', type=float, default=None,
+                    help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
+parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
+                    help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
 
 args = parser.parse_args()
 # ncores = args.nbofcores
@@ -67,7 +71,7 @@ if star is None:
         infile = fname
     else:
         raise Exception('No observation file provided. Try running with -i.')
-    
+
 ###############################
 #### ---- USER INPUTS ---- ####
 ###############################
@@ -105,11 +109,46 @@ SA.set_star(star) ## Dummy variable to identify the star
 # SA.simbad_grep()
 SA.read_config(config_file_copy)
 
+## Override magFields and/or fillFactors from CLI if provided
+if args.magfields is not None or args.fillfactors is not None:
+    import configparser as configparser
+    ## Validate consistency between magfields and fillfactors
+    n_bs = len(args.magfields) if args.magfields is not None else len(SA.bs)
+    n_ff = len(args.fillfactors) if args.fillfactors is not None else len(SA.fillFactors)
+    if n_bs != n_ff:
+        raise ValueError(
+            f'Mismatch: {n_bs} magnetic field component(s) but {n_ff} filling factor(s). '
+            f'These must have the same length.'
+        )
+    ## Temporarily make config copy writable to record CLI overrides
+    os.chmod(config_file_copy, 0o644)
+    _cfg = configparser.ConfigParser()
+    _cfg.read(config_file_copy)
+    if args.magfields is not None:
+        SA.update_bs(np.array(args.magfields))
+        _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
+        print(f'CLI override: magFields set to {args.magfields}')
+    if args.fillfactors is not None:
+        SA.update_fillFactors(np.array(args.fillfactors))
+        _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
+        print(f'CLI override: fillFactors set to {args.fillfactors}')
+    ## Rebuild PARAMS_FIT now that bs and coeffs are final
+    SA.init_PARAMS()
+    with open(config_file_copy, 'w') as _f:
+        _cfg.write(_f)
+    os.chmod(config_file_copy, 0o444)  ## Restore read-only
+
 print('dynesty: {}'.format(dynesty))
 print(SA.dynesty)
 SA.set_dynesty(dynesty)
 print(SA.dynesty)
 print('CONFIG READ')
+
+## Update the sampling method in the object to keep track of it
+if dynesty: sampler='DYNESTY'
+elif run_ultranest: sampler='ULTRANEST'
+else: sampler='EMCEE'
+SA.set_samplerType(sampler)
 
 labels = SA.return_labels()
 
@@ -120,6 +159,7 @@ labels = SA.return_labels()
 if infile is None:
     infile = SA.pathtodata + "{}.fits".format(star)
     infile2 = SA.pathtodata + "{}_templates.fits".format(star)
+    infile3 = SA.pathtodata + "{}_template.fits".format(star)
     fileFound = False
     if os.path.isfile(infile):
         print(f"File found: {infile}")
@@ -289,8 +329,8 @@ ncores = SA.ncores
 
 # SA.set_nwalkers(nwalkers)
 # SA.set_nsteps(nsteps)
-initial = SA.init_guess()
-weights = SA.init_weights()
+initial = SA.init_guess() ## returns the initial guess of parameters
+weights = SA.init_weights() ## returns the initial position of the walkers
 if SA.renorm:
     SA.compute_normFactor(SA.normFactor) ## This will bypass apply a normalization factor to
                             ## the lnlike function
@@ -315,23 +355,7 @@ if SA.renorm:
 #### ---- FUNCTIONS FOR MCMC ANALYSIS ---- ####
 ###############################################
 #
-def prior_transform(u):
-    '''I am trying to now implement a Nested sampling approach with dynasty instead of a MCMC.
-    This is the prior_transform function required by dynasty for uniform priors.'''
-    ##
-    # if u is None:
-    #     _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
-    #     vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
-    #     coeffs = self.coeffs; veilingFac = self.veilingFac; _fillTeffs = self.fillTeffs
-    # else:
-    #     coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFac, \
-    #        _T2, _fillTeffs = self.unpackpar(u)
-    
-    ## Compute the prior of each of the parameter:
-    ## Temperature between
-    ## we scale the "unit cube"
-    #
-    ## Run through conditions
+def define_ranges():
     nbOfFields = len(SA.bs) ## This will helps us unpack par
     ranges = [] ## Those are the ranges for priors
     #
@@ -376,12 +400,84 @@ def prior_transform(u):
         i += 1
         ranges.append((SA.teffs[0]-200, SA.teffs[-1]))
         i += 1
+    return ranges, idxStart
+
+ranges, idxStart = define_ranges()
+
+def prior_transform(u):
+    '''I am trying to now implement a Nested sampling approach with dynasty instead of a MCMC.
+    This is the prior_transform function required by dynasty for uniform priors.'''
+    ##
+    # if u is None:
+    #     _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
+    #     vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
+    #     coeffs = self.coeffs; veilingFac = self.veilingFac; _fillTeffs = self.fillTeffs
+    # else:
+    #     coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFac, \
+    #        _T2, _fillTeffs = self.unpackpar(u)
+    
+    ## Compute the prior of each of the parameter:
+    ## Temperature between
+    ## we scale the "unit cube"
+    #
+    ## Run through conditions
+    # nbOfFields = len(SA.bs) ## This will helps us unpack par
+    # ranges = [] ## Those are the ranges for priors
+    # #
+    # idxStart = 0
+    # if SA.fitFields:
+    #     idxStart = nbOfFields-1
+    #     for i in range(idxStart):
+    #         ranges.append((0, 1))
+    # ## Grab the T, L, M, A
+    # i = idxStart
+    # if SA.fitTeff:
+    #     ranges.append((SA.teffs[0]-200, SA.teffs[-1]))
+    #     i += 1
+    # if SA.fitLogg:
+    #     ranges.append((SA.loggs[0], SA.loggs[-1]))
+    #     i += 1
+    # if SA.fitMh:
+    #     ranges.append((SA.mhs[0], SA.mhs[-1]))
+    #     i += 1
+    # if SA.fitAlpha:
+    #     ranges.append((SA.alphas[0], SA.alphas[-1]))
+    #     i += 1
+    # ## Loop through the parameters
+    # if SA.fitbroad:
+    #     ranges.append((0, 300))
+    #     i += 1
+    # if SA.fitrv:
+    #     ranges.append((-20, 20))
+    #     i+=1
+    # if SA.fitrot:
+    #     ranges.append((0, 300))
+    #     i+=1
+    # if SA.fitmac:
+    #     ranges.append((0, 300))
+    #     i+=1        
+    # if SA.fitVeiling:
+    #     for j in range(SA.nbFitVeil):
+    #         ranges.append((0, 10))
+    #     i+=1+SA.nbFitVeil
+    # if SA.fitTeff2: ## Second temperature
+    #     ranges.append((SA.teffs[0]-200, SA.teffs[-1]))
+    #     i += 1
+    #     ranges.append((SA.teffs[0]-200, SA.teffs[-1]))
+    #     i += 1
     
     theta = np.zeros_like(u)
-    for i in range(len(ranges)):
+    for i in range(idxStart, len(ranges)):
         theta[i] = ranges[i][0] + u[i] * (ranges[i][1] - ranges[i][0])
 
-    theta[:idxStart] = theta[:idxStart] / (1-np.sum(theta[:idxStart])) ## Ensures the sum of ALL coeffs. 
+    # N magnetic components
+    # x = u[:idxStart]          # exponential variables
+    x = -np.log(u[:idxStart])          # exponential variables
+    s = np.sum(x)
+    theta[:idxStart] = x / s              # sum = 1
+    theta[:idxStart] *= u[:idxStart]
+
+    # theta[:idxStart] = u[:idxStart] / (1-np.sum(u[:idxStart])) ## Ensures the sum of ALL coeffs. 
 
     return theta
 
@@ -447,9 +543,9 @@ if SA.parallel:
         #         sys.exit(0)
         if run_ultranest:
             print("Launching dynesty in Parallel")
-            sampler = ultranest.ReactiveNestedSampler(labels, lnprob, prior_transform, pool=pool)   
+            sampler = ultranest.ReactiveNestedSampler(labels, lnprob, prior_transform)   
         elif dynesty:
-            print("Launching dynesty in Parallel")
+            print("Launching ultranest in Parallel")
             sampler = NestedSampler(lnprob, prior_transform, ndim, pool=pool, queue_size=ncores, nlive=nsteps)
         else:
             print("Launching emcee in Parallel")
@@ -476,6 +572,13 @@ if SA.parallel:
             # samples = res.samples
             # from IPython import embed
             # embed()
+        elif run_ultranest:
+            sampler.run(
+                        min_num_live_points=50,   # small (default is much larger)
+                        dlogz=100,                 # very loose stopping
+                        max_num_improvement_loops=1,
+                        max_ncalls=1000 ## For debugging
+            )
         else:
             if CONTINUE_BACKEND:
                 sampler.run_mcmc(None, nsteps, progress=True)
@@ -486,10 +589,11 @@ if SA.parallel:
         etime = time.time()
 else:
     print('Running in non parallel mode')
-    # from IPython import embed
-    # embed()
     if dynesty:
         sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nsteps)
+    elif ultranest:
+        sampler = ultranest.ReactiveNestedSampler(labels, lnprob, 
+                                                  prior_transform)
     else:
         sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,
                                         backend=backend) ## to save to file
@@ -501,6 +605,14 @@ else:
         if dynesty:
             print("Launching dynesty")
             sampler.run_nested()
+        elif run_ultranest:
+            print("Launching ultranest")
+            results = sampler.run(    
+                        min_num_live_points=50,   # small (default is much larger)
+                        dlogz=10,                 # very loose stopping
+                        max_num_improvement_loops=1,
+                        max_ncalls=1000 ## For debugging
+                        )
         else:
             print("Launching emcee")
             if CONTINUE_BACKEND:
@@ -510,6 +622,7 @@ else:
     etime = time.time()
 # Save to output
 print("Time = {:.2f} seconds".format(etime - itime))
+from IPython import embed;embed()
 ## I save the time to the SA object, because I want this to be stored in the
 ## same file
 SA.runTime = etime - itime
@@ -518,7 +631,12 @@ f.write("Initial guess: " + str(initial) + " \n")
 f.write("Time = {:.2f} seconds\n".format(etime - itime))
 f.close()
 
-if dynesty:
+if run_ultranest:
+    logz = results["logz"]
+    logl = [lnprob(theta) for theta in results["samples"]]
+    log_prob_walkers_noflat = np.array([logl])
+    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
+elif dynesty:
     res = sampler.results
     log_prob_walkers_noflat = np.array([res.logl])
     np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
@@ -548,6 +666,7 @@ print("{0} CPUs USED".format(ncores))
 
 SA.sampler = sampler ## So that save_results can work
 SA.save_results() ## Save the results and plots.
+# SA.save_results_sampler() ## Save the results and plots.
 
 if SA.return_warning_nanlikelidhood:
     print('CAUTION: NaN likelihood !')
