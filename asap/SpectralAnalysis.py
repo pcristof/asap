@@ -4407,8 +4407,8 @@ class SpectralAnalysis:
             ##########################
             #### PLOT 4 - samples ####
             ##########################
-            ## I did not reconstruct the zero-magnetic field for the non-flattened samples.
-            ## So IF we fit the fields, we need to remove the first one.
+            ## Walker trace plots are only meaningful for emcee (MCMC chains).
+            ## For nested samplers, we skip these plots.
             if self.fitFields:
                 _ndim = data['ndim']-1
                 _labels = labels[1:]
@@ -4416,56 +4416,66 @@ class SpectralAnalysis:
                 _ndim = data['ndim']
                 _labels = labels
 
-            figheightfac = len(_labels)/2 # Used to enlarge the figures
-            # ----
-            ## Without burning
-            if plottrig:
-                print("-> Generating samples plots")
-                fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-                if _ndim == 1:
-                    i = 0
-                    ax = axes
-                    ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat_0))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                    ax.set_xlabel("step number");
-                else:
-                    for i in range(_ndim):
-                        ax = axes[i]
+            figheightfac = len(_labels)/2
+
+            if sr.raw_chain is not None:
+                # emcee: plot walker traces
+                samples_noflat_0 = sr.raw_chain
+                if self.logCoeffs:
+                    samples_noflat_0 = samples_noflat_0.copy()
+                    samples_noflat_0[:, :, :len(self.bs)-1] = np.exp(
+                        samples_noflat_0[:, :, :len(self.bs)-1])
+
+                burn = sr.metadata.get('burn', round(0.5 * len(samples_noflat_0)))
+                samples_noflat = samples_noflat_0[burn:]
+
+                if plottrig:
+                    print("-> Generating samples plots")
+                    fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+                    if _ndim == 1:
+                        i = 0
+                        ax = axes
                         ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
                         ax.set_xlim(0, len(samples_noflat_0))
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
-                    axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples.pdf')
-                # plt.show()
-                plt.close()
-                data['gen_files'].append('samples.pdf')
+                        ax.set_xlabel("step number");
+                    else:
+                        for i in range(_ndim):
+                            ax = axes[i]
+                            ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                            ax.set_xlim(0, len(samples_noflat_0))
+                            ax.set_ylabel(_labels[i])
+                            ax.yaxis.set_label_coords(-0.1, 0.5)
+                        axes[-1].set_xlabel("step number");
+                    plt.savefig(self.opath+'samples.pdf')
+                    plt.close()
+                    data['gen_files'].append('samples.pdf')
 
-            ## With burning
-            if plottrig:
-                fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-                if _ndim == 1:
-                    i = 0
-                    ax = axes
-                    ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat[:]))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                    ax.set_xlabel("step number");
-                else:
-                    for i in range(_ndim):
-                        ax = axes[i]
+                if plottrig:
+                    fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+                    if _ndim == 1:
+                        i = 0
+                        ax = axes
                         ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
                         ax.set_xlim(0, len(samples_noflat[:]))
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
-                    axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples_postburn.pdf')
-                # plt.show()
-                plt.close()
-                data['gen_files'].append('samples_postburn.pdf')
+                        ax.set_xlabel("step number");
+                    else:
+                        for i in range(_ndim):
+                            ax = axes[i]
+                            ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                            ax.set_xlim(0, len(samples_noflat[:]))
+                            ax.set_ylabel(_labels[i])
+                            ax.yaxis.set_label_coords(-0.1, 0.5)
+                        axes[-1].set_xlabel("step number");
+                    plt.savefig(self.opath+'samples_postburn.pdf')
+                    plt.close()
+                    data['gen_files'].append('samples_postburn.pdf')
+            else:
+                # Nested samplers: no walker traces to plot
+                print("-> Skipping walker trace plots (not applicable for nested sampling)")
 
             resdict = self.get_PARAMS(mcmcs, emcmcs)
 
