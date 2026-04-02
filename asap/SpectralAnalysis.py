@@ -4670,6 +4670,9 @@ class SpectralAnalysis:
                         'int:nb_points',
                         'cst:norm_factor',
                         'cst:bic',
+                        'str:logz',
+                        'str:logz_err',
+                        'str:sampler_type',
                         'sep:-',
                         'str:input_instrument',
                         'str:input_fitRV',
@@ -4756,6 +4759,15 @@ class SpectralAnalysis:
         resdict['star'] = self.star
         resdict['lnlike_max'] = maxLnLikelihood
         resdict['bic'] = bic
+        if hasattr(self, 'sampler_result') and self.sampler_result is not None:
+            sr = self.sampler_result
+            resdict['logz'] = '{:.4f}'.format(sr.evidence) if sr.evidence is not None else 'N/A'
+            resdict['logz_err'] = '{:.4f}'.format(sr.evidence_err) if sr.evidence_err is not None else 'N/A'
+            resdict['sampler_type'] = sr.sampler_type
+        else:
+            resdict['logz'] = 'N/A'
+            resdict['logz_err'] = 'N/A'
+            resdict['sampler_type'] = 'unknown'
         #
         resdict['input_filename'] = self.input_filename
         ## And also some of the user inputs directly
