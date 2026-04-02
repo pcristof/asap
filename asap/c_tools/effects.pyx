@@ -388,10 +388,11 @@ def broaden_spectrum_2_cy(
         pad_right = len_master - 1 - pad_left
         padded = np.empty(n + pad_left + pad_right, dtype=np.float64)
         pad_1d(oflux, padded, pad_left, pad_right, 1.0)
-        padded = np.convolve(padded, masterkernel, mode='same')
-        output[:] = padded#[pad_left:pad_left+n]
+        padded_conv = np.convolve(padded, masterkernel, mode='same')
+        # Extract the middle n elements (removing the padding)
+        output[:] = padded_conv[pad_left:pad_left+n]
     else:
-        output[:] = np.convolve(oflux, masterkernel, mode='same')#[(len_master-1)//2:(len_master-1)//2+n]
+        output[:] = np.convolve(oflux, masterkernel, mode='same')
 
     return output
 

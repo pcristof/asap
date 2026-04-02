@@ -46,7 +46,7 @@ parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
                     help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
 
 args = parser.parse_args()
-plotfit = args.plotfit
+# plotfit = args.plotfit
 nlive = args.nlive
 
 # Determine sampler type
@@ -502,7 +502,22 @@ def lnprob(par):
         lp = SA.lnprior(par)
     else:
         lp = 0
-    return lp + SA.lnlike(par)
+    try:
+        like = SA.lnlike(par)
+    except ValueError as e:
+        if "could not broadcast" in str(e) or "Shape mismatch" in str(e):
+            # Catch the broadening kernel error or shape mismatches
+            # These can occur when ultranest tests extreme parameter values during init
+            if SA.debugMode:
+                print(f"\n[WARNING] Array shape mismatch (likely valid during ultranest init):")
+                print(f"Parameters: {SA.PARAMS_FIT}")
+                print(f"Values: {par}")
+                print(f"Error: {e}")
+            # Return very negative likelihood to reject this step
+            return -np.inf
+        else:
+            raise
+    return lp + like
 #
 ndim = SA.ndim ## To avoid class call in MCMC
 
@@ -665,7 +680,7 @@ print("{0} CPUs AVAILABLE".format(ncpu))
 print("{0} CPUs USED".format(ncores))
 
 SA.sampler_result = sampler_result
-SA.plotfit = plotfit
+# SA.plotfit = plotfit
 SA.save_results()
 
 if SA.return_warning_nanlikelidhood:

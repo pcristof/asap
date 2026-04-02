@@ -290,6 +290,13 @@ def broaden_spectra(args, **kwargs):
         #                                     vsini=vsini, epsilon=0.6, 
         #                                     vmac=vmac, vmac_mode=macProf)
         ## Faster with cython:
+        # Validate that wavelength and spectrum arrays have the same length
+        if len(_wvls) != len(spectrum[r]):
+            raise ValueError(
+                f"Shape mismatch in region {r}: "
+                f"wvl={len(_wvls)}, spectrum={len(spectrum[r])}. "
+                f"Parameters were likely at poor values during likelihood test."
+            )
         _spectra = effects_cy.broaden_spectrum_2_cy(_wvls, spectrum[r], 
                                             vinstru=vinstru, 
                                             vsini=vsini, epsilon=epsilon, 

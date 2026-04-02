@@ -1,0 +1,7 @@
+[console_scripts]
+asap.configure = asap.helper_tools:configure
+asap.convert_ov_observations = asap.scripts.convert_ov_observations:main
+asap.gen_synth_obs = asap.scripts.gen_synth_obs:main
+asap.interactive = asap.scripts.interactive:main
+asap.pca_compress_zeeturbo_grid = asap.scripts.pca_compress_zeeturbo_grid:main
+asap.plot_corner = asap.scripts.plot_corner:main

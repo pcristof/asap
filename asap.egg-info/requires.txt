@@ -1,0 +1,14 @@
+numpy
+astropy
+matplotlib
+numba
+emcee
+ipython
+astroquery
+h5py
+dynesty
+ultranest
+corner
+tqdm
+scipy
+PyAstronomy
