@@ -40,6 +40,7 @@ parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
                     help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
 
 args = parser.parse_args()
+plotfit = args.plotfit
 nlive = args.nlive
 
 # Determine sampler type
@@ -156,10 +157,7 @@ SA.sampler_type = sampler_type
 print('CONFIG READ')
 
 ## Update the sampling method in the object to keep track of it
-if dynesty: sampler='DYNESTY'
-elif run_ultranest: sampler='ULTRANEST'
-else: sampler='EMCEE'
-SA.set_samplerType(sampler)
+SA.set_samplerType(sampler_type.upper())
 
 labels = SA.return_labels()
 
