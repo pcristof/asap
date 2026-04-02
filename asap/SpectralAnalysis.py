@@ -65,6 +65,7 @@ from asap.spectral_analysis_pack import fill_nans_wavelength_v2
 from asap.spectral_analysis_pack import fill_nans_wavelength_v3
 from asap.line_selection_tools import find_optimal_order
 import corner
+from asap.sampler_utils import SamplerResult, weighted_percentile
 
 import shutil
 
@@ -3952,48 +3953,49 @@ class SpectralAnalysis:
         return maxkey, maxval
 
     def save_results(self, write=True):
-        '''Function to save the results of the MCMC'''
-        if self.sampler is not None:
-            if self.dynesty:
-                samples = np.array([self.sampler.results.samples])
-            else:
-                samples = self.sampler.get_chain()
-                log_prob_walkers_noflat_0 = self.sampler.get_log_prob()
+        '''Function to save the results of the sampler (emcee, dynesty, or UltraNest).'''
+        if hasattr(self, 'sampler_result') and self.sampler_result is not None:
+            sr = self.sampler_result
+
+            # Work on a copy to avoid mutating the SamplerResult
+            ssamples = sr.samples.copy()
+            log_prob_walkers = sr.log_likelihood.copy()
+            sample_weights = sr.weights.copy()
+
             if self.logCoeffs:
-                samples[:,:,:len(self.bs)-1] = np.exp(samples[:,:,:len(self.bs)-1])
-            np.save(self.opath+"samples", samples)
-            np.save(self.opath+"weights", samples)
+                ssamples[:, :len(self.bs)-1] = np.exp(ssamples[:, :len(self.bs)-1])
+
+            # Save samples.npy: for emcee, preserve the 3D raw chain shape
+            # (nsteps, nwalkers, ndim) that downstream scripts expect.
+            # For nested samplers, save the flat 2D samples (n_samples, ndim).
+            if sr.raw_chain is not None:
+                raw_to_save = sr.raw_chain.copy()
+                if self.logCoeffs:
+                    raw_to_save[:, :, :len(self.bs)-1] = np.exp(
+                        raw_to_save[:, :, :len(self.bs)-1])
+                np.save(self.opath+"samples", raw_to_save)
+            else:
+                np.save(self.opath+"samples", ssamples)
+            np.save(self.opath+"weights", ssamples)  # Legacy: duplicate of flat samples
 
             ## Sometimes we run into problems with latex. Let's check if latex is usable:
             if shutil.which('latex'): self.latex = False
 
-            ## Reasign        
-            samples_noflat_0 = samples
             data = {}
-            data['nsteps'] = len(samples_noflat_0)
-            data['burning'] = round(0.5*data['nsteps']) ## 50% by default
             data['bs'] = self.bs
 
-            #### REDISCARD - If user requested to discard the samples
-            ## Recompute the burning period
-            ## Take the samples after burning period
-            samples_noflat = samples_noflat_0[data['burning']:]
-            log_prob_walkers_noflat = log_prob_walkers_noflat_0[data['burning']:]
-
             #### Compute the number of fields in the fit
-            nbOfFields = len(self.bs) ## This is the number of fields in our model NOT WHAT WE FIT 
-            
-            #### Flatten the samples
-            ishape = np.shape(samples_noflat)
-            nshape = (ishape[0] * ishape[1], ishape[2])
-            ssamples = np.reshape(np.copy(samples_noflat), nshape) ## Those are the new flatten samples
-            log_prob_walkers = np.concatenate(log_prob_walkers_noflat, -1)
+            nbOfFields = len(self.bs)
 
-            ## This is taking the average of the 5% of the walkers
+            ## Weighted top-5% selection by log-likelihood
             percent = .05
-            nblim = int(round(percent*len(log_prob_walkers))) ## Thats 5%
-            thslikelihood = np.sort(log_prob_walkers)[-nblim]
-            idx50 = np.where(log_prob_walkers>=thslikelihood)
+            sorted_idx = np.argsort(log_prob_walkers)[::-1]  # highest first
+            cumulative_weight = np.cumsum(sample_weights[sorted_idx])
+            top_mask = cumulative_weight <= percent
+            # Ensure at least one sample is selected
+            if not np.any(top_mask):
+                top_mask[0] = True
+            idx50 = (sorted_idx[top_mask],)
             nbofvals2 = len(idx50[0])
 
             labels = self.return_labels()
