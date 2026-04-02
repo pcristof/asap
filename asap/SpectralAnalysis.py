@@ -4070,7 +4070,7 @@ class SpectralAnalysis:
             plottrig = True
             if plottrig:
                 print("-> Generating full corner plot")
-                fig = corner.corner(nssamples, **CORNER_KWARGS)
+                fig = corner.corner(nssamples, weights=sample_weights, **CORNER_KWARGS)
 
                 ## Now we want to remove the equal sign from titles
                 for i in range(len(fig.axes)):
@@ -4137,7 +4137,7 @@ class SpectralAnalysis:
                         ax.tick_params(axis='both', labelsize=16)
                         ax.title.set_fontsize("16")
                     ## Corner plots
-                    fig = corner.corner(meanfield,**CORNER_KWARGS)
+                    fig = corner.corner(meanfield, weights=sample_weights, **CORNER_KWARGS)
                     # Extract the axes
                     axes = np.array(fig.axes).reshape((_ndim, _ndim))
                     ## Compute max likelihood
@@ -4165,7 +4165,7 @@ class SpectralAnalysis:
 
                     # subssamples = nssamples.T[1:nbOfFields]
                     # meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
-                    mcmc_meanfield = np.percentile(meanfield, [16, 50, 84])
+                    mcmc_meanfield = weighted_percentile(meanfield, sample_weights, [16, 50, 84])
                     q_meanfield = np.diff(mcmc_meanfield)
                     meanfield_tradi = mcmc_meanfield[1]
                     emeanfield_tradi = np.mean(q_meanfield)
@@ -4216,7 +4216,7 @@ class SpectralAnalysis:
                     ## Corner plots
                     non_mag = nssamples.T[0]
                     nonmag_meanfield = np.array([meanfield, non_mag])
-                    fig = corner.corner(nonmag_meanfield.T,**CORNER_KWARGS)
+                    fig = corner.corner(nonmag_meanfield.T, weights=sample_weights, **CORNER_KWARGS)
                     # print('If I am right this is the mean field: {} '.format(np.median(nonmag_meanfield[1])))
                     # print('And so this is the max field: {} '.format(np.max(nonmag_meanfield[1])))
                     idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
@@ -4277,7 +4277,7 @@ class SpectralAnalysis:
             max = np.mean(max50, axis=0)
             for i in range(len(nssamples[0])):
                 ## Compute the median and error bars "traditionally"
-                mcmc = np.percentile(nssamples[:, i], [16, 50, 84])
+                mcmc = weighted_percentile(nssamples[:, i], sample_weights, [16, 50, 84])
                 q = np.diff(mcmc)
                 # 1 - get the maximum of the distributions
                 roundfac = -1*magnitude(np.mean(q))
@@ -4334,7 +4334,7 @@ class SpectralAnalysis:
             if (self.fitFields and (nbOfFields>1)):
                 subssamples = nssamples.T[1:nbOfFields] ## Without the 0kG component
                 meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
-                mcmc_meanfield = np.percentile(meanfield_ssamples, [16, 50, 84])
+                mcmc_meanfield = weighted_percentile(meanfield_ssamples, sample_weights, [16, 50, 84])
                 q_meanfield = np.diff(mcmc_meanfield)
                 meanfield_tradi = mcmc_meanfield[1]
                 emeanfield_tradi = np.mean(q_meanfield)
