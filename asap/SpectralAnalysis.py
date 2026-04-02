@@ -368,7 +368,9 @@ class SpectralAnalysis:
         self.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
-        self.teffs = np.arange(2700., 4000., 100.); 
+        self.sampler_type = "emcee"  # Default; set by __main__.py
+        self.sampler_result = None   # Set by __main__.py after sampler run
+        self.teffs = np.arange(2700., 4000., 100.);
         self.loggs = np.arange(4.0, 6., .5)
         self.mhs = np.arange(-1.0, 1.0, .5); 
         self.alphas = np.arange(-0.25, 0.75, .25); 
