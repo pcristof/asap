@@ -164,25 +164,10 @@ def extract_ultranest(result):
     -------
     SamplerResult
     """
-    samples = np.array(result["samples"])
-    n_samples = len(samples)
-    weights = np.ones(n_samples) / n_samples
-
-    # Log-likelihoods from the weighted samples table
-    logl = np.array(result["weighted_samples"]["logl"])
-    # weighted_samples may have different length than samples;
-    # samples are the equally-weighted posterior draws.
-    # Re-evaluate: result['weighted_samples'] has a different shape.
-    # Use the posterior samples and match log-likelihoods from the
-    # weighted_samples by finding closest points, OR use the
-    # maximum_likelihood info. Simpler: UltraNest stores logl in
-    # result['weighted_samples']['logl'] aligned with
-    # result['weighted_samples']['points']. The result['samples']
-    # are resampled from these. We need logl for each posterior sample.
-    #
-    # Best approach: use result['weighted_samples']['points'] and
-    # result['weighted_samples']['logl'] with the importance weights
-    # result['weighted_samples']['weights'].
+    # UltraNest provides both equally-weighted posterior draws (result['samples'])
+    # and importance-weighted nested sampling samples (result['weighted_samples']).
+    # We use the importance-weighted samples for correct posteriors; the posterior
+    # draws are preserved in metadata for reference.
     ws = result["weighted_samples"]
     samples_weighted = np.array(ws["points"])
     logl_weighted = np.array(ws["logl"])
