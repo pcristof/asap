@@ -26,16 +26,30 @@ parser.add_argument("-i", "--interactive", action='store_true',
 parser.add_argument("-c", "--nbofcores", type=int, default=None)
 parser.add_argument("-m", "--mpi", type=bool, default=False)
 parser.add_argument("-p", "--profile", type=bool, default=False)
-parser.add_argument("-d", "--dynesty", type=bool, default=False)
-parser.add_argument("-u", "--run_ultranest", action='store_true', default=False)
+parser.add_argument("-d", "--dynesty", action='store_true', default=False,
+                    help='Use dynesty nested sampling instead of emcee')
+parser.add_argument("-u", "--run_ultranest", action='store_true', default=False,
+                    help='Use UltraNest reactive nested sampling instead of emcee')
+parser.add_argument("--nlive", type=int, default=400,
+                    help='Number of live points for nested sampling (default: 400)')
+parser.add_argument("--logdir", type=str, default=None,
+                    help='UltraNest checkpoint directory. Enables resume if set.')
 parser.add_argument("--magfields", nargs='+', type=float, default=None,
                     help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
 parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
                     help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
 
 args = parser.parse_args()
-# ncores = args.nbofcores
-dynesty = args.dynesty
+nlive = args.nlive
+
+# Determine sampler type
+if args.run_ultranest:
+    sampler_type = "ultranest"
+elif args.dynesty:
+    sampler_type = "dynesty"
+else:
+    sampler_type = "emcee"
+
 if args.star is not None:
     star = args.star.strip()
     if star[-5:] == '.fits':
@@ -45,7 +59,6 @@ else:
 folderid = args.folderid
 mpi = args.mpi
 profile = args.profile
-run_ultranest = args.run_ultranest
 
 # from IPython import embed
 # embed()
@@ -138,10 +151,8 @@ if args.magfields is not None or args.fillfactors is not None:
         _cfg.write(_f)
     os.chmod(config_file_copy, 0o444)  ## Restore read-only
 
-print('dynesty: {}'.format(dynesty))
-print(SA.dynesty)
-SA.set_dynesty(dynesty)
-print(SA.dynesty)
+print('Sampler type: {}'.format(sampler_type))
+SA.sampler_type = sampler_type
 print('CONFIG READ')
 
 ## Update the sampling method in the object to keep track of it
@@ -483,7 +494,7 @@ def prior_transform(u):
 
 SA.return_warning_nanlikelidhood = False
 def lnprob(par):
-    if dynesty:
+    if sampler_type in ("dynesty", "ultranest"):
         lp = SA.lnprior(par)
     else:
         lp = 0
