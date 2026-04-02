@@ -68,3 +68,139 @@ def weighted_percentile(data, weights, percentiles):
     cumulative = np.cumsum(sorted_weights)
     cumulative = (cumulative - 0.5 * sorted_weights) / cumulative[-1]
     return np.interp(percentiles, cumulative, sorted_data)
+
+
+def extract_emcee(sampler, burn_frac=0.5):
+    """Extract a SamplerResult from an emcee EnsembleSampler.
+
+    Parameters
+    ----------
+    sampler : emcee.EnsembleSampler
+        The sampler after run_mcmc() has completed.
+    burn_frac : float
+        Fraction of steps to discard as burn-in (default 0.5).
+
+    Returns
+    -------
+    SamplerResult
+    """
+    # Raw chain: (nsteps, nwalkers, ndim)
+    raw_chain = sampler.get_chain()
+    raw_log_prob = sampler.get_log_prob()  # (nsteps, nwalkers)
+
+    nsteps = raw_chain.shape[0]
+    burn = round(burn_frac * nsteps)
+
+    # Discard burn-in
+    chain_post_burn = raw_chain[burn:]
+    log_prob_post_burn = raw_log_prob[burn:]
+
+    # Flatten: (n_remaining * nwalkers, ndim)
+    n_remaining, nwalkers, ndim = chain_post_burn.shape
+    samples_flat = chain_post_burn.reshape(n_remaining * nwalkers, ndim)
+    log_prob_flat = log_prob_post_burn.reshape(n_remaining * nwalkers)
+
+    n_samples = len(samples_flat)
+    weights = np.ones(n_samples) / n_samples
+
+    # Autocorrelation time (best effort)
+    try:
+        tau = sampler.get_autocorr_time(tol=0)
+    except Exception:
+        tau = np.full(ndim, np.nan)
+
+    return SamplerResult(
+        samples=samples_flat,
+        log_likelihood=log_prob_flat,
+        weights=weights,
+        sampler_type="emcee",
+        evidence=None,
+        evidence_err=None,
+        metadata={"tau": tau, "nsteps": nsteps, "burn": burn},
+        raw_chain=raw_chain,
+    )
+
+
+def extract_dynesty(sampler):
+    """Extract a SamplerResult from a dynesty NestedSampler.
+
+    Parameters
+    ----------
+    sampler : dynesty.NestedSampler or dynesty.DynamicNestedSampler
+        The sampler after run_nested() has completed.
+
+    Returns
+    -------
+    SamplerResult
+    """
+    res = sampler.results
+
+    # Importance weights from log-weights
+    log_wt = res.logwt
+    weights = np.exp(log_wt - log_wt.max())
+    weights /= weights.sum()
+
+    return SamplerResult(
+        samples=res.samples,
+        log_likelihood=res.logl,
+        weights=weights,
+        sampler_type="dynesty",
+        evidence=float(res.logz[-1]),
+        evidence_err=float(res.logzerr[-1]),
+        metadata={"niter": res.niter, "results_obj": res},
+        raw_chain=None,
+    )
+
+
+def extract_ultranest(result):
+    """Extract a SamplerResult from an UltraNest run result.
+
+    Parameters
+    ----------
+    result : dict
+        The dictionary returned by ReactiveNestedSampler.run().
+
+    Returns
+    -------
+    SamplerResult
+    """
+    samples = np.array(result["samples"])
+    n_samples = len(samples)
+    weights = np.ones(n_samples) / n_samples
+
+    # Log-likelihoods from the weighted samples table
+    logl = np.array(result["weighted_samples"]["logl"])
+    # weighted_samples may have different length than samples;
+    # samples are the equally-weighted posterior draws.
+    # Re-evaluate: result['weighted_samples'] has a different shape.
+    # Use the posterior samples and match log-likelihoods from the
+    # weighted_samples by finding closest points, OR use the
+    # maximum_likelihood info. Simpler: UltraNest stores logl in
+    # result['weighted_samples']['logl'] aligned with
+    # result['weighted_samples']['points']. The result['samples']
+    # are resampled from these. We need logl for each posterior sample.
+    #
+    # Best approach: use result['weighted_samples']['points'] and
+    # result['weighted_samples']['logl'] with the importance weights
+    # result['weighted_samples']['weights'].
+    ws = result["weighted_samples"]
+    samples_weighted = np.array(ws["points"])
+    logl_weighted = np.array(ws["logl"])
+    w = np.array(ws["weights"])
+    w /= w.sum()
+
+    return SamplerResult(
+        samples=samples_weighted,
+        log_likelihood=logl_weighted,
+        weights=w,
+        sampler_type="ultranest",
+        evidence=float(result["logz"]),
+        evidence_err=float(result["logzerr"]),
+        metadata={
+            "ncall": result.get("ncall", None),
+            "niter": result.get("niter", None),
+            "insertion_order_MWW_test": result.get("insertion_order_MWW_test", None),
+            "posterior_samples": np.array(result["samples"]),
+        },
+        raw_chain=None,
+    )
