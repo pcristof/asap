@@ -14,6 +14,12 @@ from asap import io_tools
 from dynesty import NestedSampler, DynamicNestedSampler
 from dynesty import plotting as dyplot
 import ultranest
+import time
+import multiprocessing
+from multiprocessing import Pool
+from multiprocessing import get_context
+import emcee
+from asap.sampler_utils import extract_emcee, extract_dynesty, extract_ultranest
 
 
 parser = argparse.ArgumentParser()
@@ -505,123 +511,102 @@ ndim = SA.ndim ## To avoid class call in MCMC
 #### ---- RUN MCMC ANALYSIS ---- ####
 #####################################
 
-import time
-import multiprocessing
-from multiprocessing import Pool
-from multiprocessing import get_context
-import emcee
-import os
-
 os.environ["OMP_NUM_THREADS"] = "1"
-#multiprocessing.set_start_method("fork")
 
-# Set up the backend
-# Don't forget to clear it in case the file already exists
-if SA.savebackend:
-    # !! If the file exists, we may want to continue and not reset
+# Set up the emcee backend (only needed for emcee)
+CONTINUE_BACKEND = False
+backend = None
+if sampler_type == "emcee" and SA.savebackend:
     filename = opath + "backend.h5"
     backend = emcee.backends.HDFBackend(filename)
     if os.path.isfile(filename):
         print('!!! By default, I continue the chain (no backend reset)')
         CONTINUE_BACKEND = True
-        nwalkers = backend.shape[0] ## The number of walkers is that which was was set in the previous run
-        # weights = None
+        nwalkers = backend.shape[0]
     else:
-        CONTINUE_BACKEND = False ## Cannot continue because no file found
-        backend.reset(nwalkers, ndim) ## This resets the file
-else:
-    CONTINUE_BACKEND = False ## We are not saving the backend, and therefore not continuing
-    backend=None
+        CONTINUE_BACKEND = False
+        backend.reset(nwalkers, ndim)
 
-# import corner
 if SA.parallel:
     print(f'Running in parallel mode with ncores={ncores}')
-    
-    if sys.platform == "darwin": ## This should be a mac
+
+    if sys.platform == "darwin":
         print('OS detected: MacOS')
         __p = get_context("fork").Pool(ncores)
-    # elif mpi:
-    #     __p = MPIPool(ncores)
     else:
         __p = Pool(ncores)
 
     with __p as pool:
-        # if mpi:
-        #     if not pool.is_master():
-        #         pool.wait()
-        #         sys.exit(0)
-        if run_ultranest:
+        # --- Phase 1: Create sampler ---
+        if sampler_type == "ultranest":
+            print("Launching UltraNest")
+            print("  Note: UltraNest runs single-core within this process.")
+            print("  For parallel UltraNest, use: mpiexec -n {} python -m asap ...".format(ncores))
+            resume_policy = 'overwrite' if args.logdir is None else 'resume-similar'
+            sampler = ultranest.ReactiveNestedSampler(
+                labels, lnprob, prior_transform,
+                log_dir=args.logdir,
+                resume=resume_policy,
+            )
+        elif sampler_type == "dynesty":
             print("Launching dynesty in Parallel")
-            sampler = ultranest.ReactiveNestedSampler(labels, lnprob, prior_transform)   
-        elif dynesty:
-            print("Launching ultranest in Parallel")
-            sampler = NestedSampler(lnprob, prior_transform, ndim, pool=pool, queue_size=ncores, nlive=nsteps)
+            sampler = NestedSampler(
+                lnprob, prior_transform, ndim,
+                pool=pool, queue_size=ncores, nlive=nlive,
+            )
         else:
             print("Launching emcee in Parallel")
-            sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,
-                                            pool=pool, 
-                                            backend=backend) ## to save to file
-        itime = time.time()
-        if dynesty:
-            sampler.run_nested()
-            # res = sampler.results
-            # from dynesty.utils import quantile as dyn_quantile
-            # q = (0.025, 0.5, 0.975)
-            # values = []
-            # for i in range(res.samples.shape[1]):
-            #     values.append(dyn_quantile(res.samples[:,i], q, weights=res.importance_weights()))
-            # values = np.array(values)
-            # max_likelihood_idx = np.argmax(res.logl)
-            # best_fit_params = res.samples[max_likelihood_idx]
-            # fig, axes = dyplot.cornerplot(res, show_titles=True,
-            #                               truths=best_fit_params,
-            #                             #   truth_color='black', ## Adds lines on the plots
-            #                               )
-            # fig.savefig(opath+"cornerplotnosmooth.png")
-            # samples = res.samples
-            # from IPython import embed
-            # embed()
-        elif run_ultranest:
-            sampler.run(
-                        min_num_live_points=50,   # small (default is much larger)
-                        dlogz=100,                 # very loose stopping
-                        max_num_improvement_loops=1,
-                        max_ncalls=1000 ## For debugging
+            sampler = emcee.EnsembleSampler(
+                nwalkers, ndim, lnprob,
+                pool=pool, backend=backend,
             )
+
+        # --- Phase 2: Run sampler ---
+        itime = time.time()
+        if sampler_type == "ultranest":
+            result_raw = sampler.run(min_num_live_points=nlive)
+        elif sampler_type == "dynesty":
+            sampler.run_nested()
         else:
             if CONTINUE_BACKEND:
                 sampler.run_mcmc(None, nsteps, progress=True)
             else:
                 sampler.run_mcmc(weights, nsteps, progress=True)
-                # import cProfile
-                # cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort='cumtime')
         etime = time.time()
+
 else:
     print('Running in non parallel mode')
-    if dynesty:
-        sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nsteps)
-    elif ultranest:
-        sampler = ultranest.ReactiveNestedSampler(labels, lnprob, 
-                                                  prior_transform)
+
+    # --- Phase 1: Create sampler ---
+    if sampler_type == "ultranest":
+        print("Launching UltraNest")
+        resume_policy = 'overwrite' if args.logdir is None else 'resume-similar'
+        sampler = ultranest.ReactiveNestedSampler(
+            labels, lnprob, prior_transform,
+            log_dir=args.logdir,
+            resume=resume_policy,
+        )
+    elif sampler_type == "dynesty":
+        sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nlive)
     else:
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,
-                                        backend=backend) ## to save to file
+        sampler = emcee.EnsembleSampler(
+            nwalkers, ndim, lnprob, backend=backend,
+        )
+
+    # --- Phase 2: Run sampler ---
     itime = time.time()
-    if profile:
+    if profile and sampler_type == "emcee":
         import cProfile
-        cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort=True)
+        if CONTINUE_BACKEND:
+            cProfile.run('sampler.run_mcmc(None, nsteps, progress=True)', sort=True)
+        else:
+            cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort=True)
     else:
-        if dynesty:
+        if sampler_type == "ultranest":
+            result_raw = sampler.run(min_num_live_points=nlive)
+        elif sampler_type == "dynesty":
             print("Launching dynesty")
             sampler.run_nested()
-        elif run_ultranest:
-            print("Launching ultranest")
-            results = sampler.run(    
-                        min_num_live_points=50,   # small (default is much larger)
-                        dlogz=10,                 # very loose stopping
-                        max_num_improvement_loops=1,
-                        max_ncalls=1000 ## For debugging
-                        )
         else:
             print("Launching emcee")
             if CONTINUE_BACKEND:
@@ -629,39 +614,45 @@ else:
             else:
                 sampler.run_mcmc(weights, nsteps, progress=True)
     etime = time.time()
-# Save to output
+
+# --- Phase 3: Extract results ---
 print("Time = {:.2f} seconds".format(etime - itime))
-from IPython import embed;embed()
-## I save the time to the SA object, because I want this to be stored in the
-## same file
 SA.runTime = etime - itime
 f = open(opath+'time.txt', 'w')
 f.write("Initial guess: " + str(initial) + " \n")
 f.write("Time = {:.2f} seconds\n".format(etime - itime))
 f.close()
 
-if run_ultranest:
-    logz = results["logz"]
-    logl = [lnprob(theta) for theta in results["samples"]]
-    log_prob_walkers_noflat = np.array([logl])
-    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
-elif dynesty:
-    res = sampler.results
-    log_prob_walkers_noflat = np.array([res.logl])
-    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
-    ## If dynesty, pickle the results object so that we can later load it
-    ## and make the plot with dynesty.plotting.corerplot. 
+if sampler_type == "ultranest":
+    sampler_result = extract_ultranest(result_raw)
     import pickle
-    with open(opath+'dynesty_results.pkl', 'wb') as outp:
-        pickle.dump(res, outp)
+    with open(opath + 'ultranest_results.pkl', 'wb') as outp:
+        pickle.dump(result_raw, outp)
+elif sampler_type == "dynesty":
+    sampler_result = extract_dynesty(sampler)
+    import pickle
+    with open(opath + 'dynesty_results.pkl', 'wb') as outp:
+        pickle.dump(sampler.results, outp)
 else:
-    tau = sampler.get_autocorr_time(tol=0)
-    log_prob_walkers_noflat = sampler.get_log_prob()
-    np.save(opath+'tau.npy', tau)
-    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
-    print("Max autocorrelation time: {:0.2f}".format(np.max(tau)))
+    sampler_result = extract_emcee(sampler, burn_frac=0.5)
+    np.save(opath + 'tau.npy', sampler_result.metadata['tau'])
+
+np.save(opath + 'log_prob_walkers_noflat.npy', sampler_result.log_likelihood)
+
+if sampler_type == "emcee":
+    print("Max autocorrelation time: {:0.2f}".format(
+        np.max(sampler_result.metadata['tau'])))
     f = open(opath+'time.txt', 'a')
-    f.write("Max autocorrelation time: {:0.2f}\n".format(np.max(tau)))
+    f.write("Max autocorrelation time: {:0.2f}\n".format(
+        np.max(sampler_result.metadata['tau'])))
+    f.close()
+
+if sampler_type in ("dynesty", "ultranest"):
+    print("ln(Z) = {:.2f} +/- {:.2f}".format(
+        sampler_result.evidence, sampler_result.evidence_err))
+    f = open(opath+'time.txt', 'a')
+    f.write("ln(Z) = {:.2f} +/- {:.2f}\n".format(
+        sampler_result.evidence, sampler_result.evidence_err))
     f.close()
 
 from multiprocessing import cpu_count
@@ -673,9 +664,9 @@ f.close()
 print("{0} CPUs AVAILABLE".format(ncpu))
 print("{0} CPUs USED".format(ncores))
 
-SA.sampler = sampler ## So that save_results can work
-SA.save_results() ## Save the results and plots.
-# SA.save_results_sampler() ## Save the results and plots.
+SA.sampler_result = sampler_result
+SA.plotfit = plotfit
+SA.save_results()
 
 if SA.return_warning_nanlikelidhood:
     print('CAUTION: NaN likelihood !')
