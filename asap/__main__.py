@@ -38,8 +38,6 @@ parser.add_argument("-u", "--run_ultranest", action='store_true', default=False,
                     help='Use UltraNest reactive nested sampling instead of emcee')
 parser.add_argument("--nlive", type=int, default=400,
                     help='Number of live points for nested sampling (default: 400)')
-parser.add_argument("--logdir", type=str, default=None,
-                    help='UltraNest checkpoint directory. Enables resume if set.')
 parser.add_argument("--nsteps", type=int, default=None,
                     help='Number of slice steps for UltraNest step sampler. '
                          'Default: max(4*ndim, 50). Increase if rel jump distance < 1.')
@@ -132,6 +130,7 @@ if '/' in star:
 else:
     _star = star
 opath = 'output_{}{}/'.format(_star, folderid)
+ultranest_logdir = os.path.join(opath, 'ultranest_logdir')
 config_file_copy = opath+"config_copy.ini"
 
 # Only rank 0 creates the output directory and copies the config file.
@@ -139,6 +138,9 @@ config_file_copy = opath+"config_copy.ini"
 # file-copy race against each other and crash.
 if mpi_rank == 0:
     os.makedirs(opath, exist_ok=True)
+    if sampler_type == "ultranest":
+        # Always keep UltraNest logs inside the retrieval output folder.
+        os.makedirs(ultranest_logdir, exist_ok=True)
     if os.path.isfile(config_file_copy):
         print('Caution, overwriting previous run config.ini')
         os.system("rm -f {}".format(config_file_copy))
@@ -605,10 +607,10 @@ if sampler_type == "emcee" and SA.savebackend:
 #   on MPI for distributing likelihood evaluations across cores/nodes.
 #
 #   Single-core run:
-#       python -m asap <star> -u --nlive 400 --logdir ./ultranest_run
+#       python -m asap <star> -u --nlive 400
 #
 #   Multi-core run (MPI, recommended):
-#       mpiexec -n <ncores> python -m asap <star> -u --nlive 400 --logdir ./ultranest_run
+#       mpiexec -n <ncores> python -m asap <star> -u --nlive 400
 #
 #   Make sure OMP_NUM_THREADS=1 (set above) to prevent numpy/BLAS from
 #   spawning threads that compete with MPI ranks.
@@ -628,13 +630,14 @@ if sampler_type == "ultranest":
         print(f"  MPI parallelisation active: {mpi_size} ranks")
     else:
         print("  Running single-core. For parallel execution use:")
-        print("    mpiexec -n {} python -m asap {} -u --nlive {} --logdir <dir>".format(
+        print("    mpiexec -n {} python -m asap {} -u --nlive {}".format(
             ncores, star, nlive))
+    print(f"  UltraNest logs: {ultranest_logdir}")
 
-    resume_policy = 'overwrite' if args.logdir is None else 'resume-similar'
+    resume_policy = 'overwrite'
     sampler = ultranest.ReactiveNestedSampler(
         labels, lnprob_vectorized, prior_transform_vectorized,
-        log_dir=args.logdir,
+        log_dir=ultranest_logdir,
         resume=resume_policy,
         vectorized=True,
     )
