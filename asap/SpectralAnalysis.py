@@ -4442,7 +4442,7 @@ class SpectralAnalysis:
                     samples_noflat_0[:, :, :len(self.bs)-1] = np.exp(
                         samples_noflat_0[:, :, :len(self.bs)-1])
 
-                burn = sr.metadata.get('burn', round(0.5 * len(samples_noflat_0)))
+                burn = sr.metadata.get('burn', round(0.5 * len(samples_noflat_0))) # Default to 50% burn-in if not specified
                 samples_noflat = samples_noflat_0[burn:]
 
                 if plottrig:
