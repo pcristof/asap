@@ -40,6 +40,9 @@ parser.add_argument("--nlive", type=int, default=400,
                     help='Number of live points for nested sampling (default: 400)')
 parser.add_argument("--logdir", type=str, default=None,
                     help='UltraNest checkpoint directory. Enables resume if set.')
+parser.add_argument("--nsteps", type=int, default=None,
+                    help='Number of slice steps for UltraNest step sampler. '
+                         'Default: max(4*ndim, 50). Increase if rel jump distance < 1.')
 parser.add_argument("--magfields", nargs='+', type=float, default=None,
                     help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
 parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
@@ -56,6 +59,21 @@ elif args.dynesty:
     sampler_type = "dynesty"
 else:
     sampler_type = "emcee"
+
+# ---------------------------------------------------------------------------
+# Early MPI detection — needed before any file I/O so that only rank 0
+# creates directories, copies config files, etc.  Worker ranks wait at
+# a barrier and then read the config that rank 0 wrote.
+# ---------------------------------------------------------------------------
+mpi_size = 1
+mpi_rank = 0
+if sampler_type == "ultranest":
+    try:
+        from mpi4py import MPI
+        mpi_size = MPI.COMM_WORLD.Get_size()
+        mpi_rank = MPI.COMM_WORLD.Get_rank()
+    except ImportError:
+        pass
 
 if args.star is not None:
     star = args.star.strip()
@@ -114,14 +132,22 @@ if '/' in star:
 else:
     _star = star
 opath = 'output_{}{}/'.format(_star, folderid)
-if not os.path.isdir(opath): os.mkdir(opath)
-## Make a READ ONLY copy of the config file in the output folder
 config_file_copy = opath+"config_copy.ini"
-if os.path.isfile(config_file_copy):
-    print('Caution, overwriting previous run config.ini')
-    os.system("rm -f {}".format(config_file_copy)) ## Make the copy read only. This will help prevent future mistakes (e.g. oups, I modified the wrong file)
-os.system("cp {} {}".format(config_file, config_file_copy))
-os.chmod(config_file_copy, 0o444) ## Make the copy read only. This will help prevent future mistakes (e.g. oups, I modified the wrong file)
+
+# Only rank 0 creates the output directory and copies the config file.
+# Under MPI every rank runs this script; without the guard the mkdir and
+# file-copy race against each other and crash.
+if mpi_rank == 0:
+    os.makedirs(opath, exist_ok=True)
+    if os.path.isfile(config_file_copy):
+        print('Caution, overwriting previous run config.ini')
+        os.system("rm -f {}".format(config_file_copy))
+    os.system("cp {} {}".format(config_file, config_file_copy))
+    os.chmod(config_file_copy, 0o444)
+
+# Worker ranks wait until rank 0 has written the config copy.
+if mpi_size > 1:
+    MPI.COMM_WORLD.Barrier()
 
 SA = SpectralAnalysis()
 SA.set_opath(opath)
@@ -140,27 +166,34 @@ if args.magfields is not None or args.fillfactors is not None:
             f'Mismatch: {n_bs} magnetic field component(s) but {n_ff} filling factor(s). '
             f'These must have the same length.'
         )
-    ## Temporarily make config copy writable to record CLI overrides
-    os.chmod(config_file_copy, 0o644)
-    _cfg = configparser.ConfigParser()
-    _cfg.read(config_file_copy)
+    ## Update the in-memory SA object on ALL ranks
     if args.magfields is not None:
         SA.update_bs(np.array(args.magfields))
-        _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
-        print(f'CLI override: magFields set to {args.magfields}')
+        if mpi_rank == 0:
+            print(f'CLI override: magFields set to {args.magfields}')
     if args.fillfactors is not None:
         SA.update_fillFactors(np.array(args.fillfactors))
-        _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
-        print(f'CLI override: fillFactors set to {args.fillfactors}')
-    ## Rebuild PARAMS_FIT now that bs and coeffs are final
+        if mpi_rank == 0:
+            print(f'CLI override: fillFactors set to {args.fillfactors}')
     SA.init_PARAMS()
-    with open(config_file_copy, 'w') as _f:
-        _cfg.write(_f)
-    os.chmod(config_file_copy, 0o444)  ## Restore read-only
+    ## Only rank 0 writes the config copy to disk
+    if mpi_rank == 0:
+        os.chmod(config_file_copy, 0o644)
+        _cfg = configparser.ConfigParser()
+        _cfg.read(config_file_copy)
+        if args.magfields is not None:
+            _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
+        if args.fillfactors is not None:
+            _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
+        with open(config_file_copy, 'w') as _f:
+            _cfg.write(_f)
+        os.chmod(config_file_copy, 0o444)
 
-print('Sampler type: {}'.format(sampler_type))
+if mpi_rank == 0:
+    print('Sampler type: {}'.format(sampler_type))
 SA.sampler_type = sampler_type
-print('CONFIG READ')
+if mpi_rank == 0:
+    print('CONFIG READ')
 
 ## Update the sampling method in the object to keep track of it
 SA.set_samplerType(sampler_type.upper())
@@ -404,8 +437,8 @@ def define_ranges():
         ranges.append((0, 300))
         i+=1
     if SA.fitmac:
-        ranges.append((0, 300))
-        i+=1        
+        ranges.append((0, 10))
+        i+=1
     if SA.fitVeiling:
         for j in range(SA.nbFitVeil):
             ranges.append((0, 10))
@@ -485,41 +518,59 @@ def prior_transform(u):
     for i in range(idxStart, len(ranges)):
         theta[i] = ranges[i][0] + u[i] * (ranges[i][1] - ranges[i][0])
 
-    # N magnetic components
-    # x = u[:idxStart]          # exponential variables
-    x = -np.log(u[:idxStart])          # exponential variables
-    s = np.sum(x)
-    theta[:idxStart] = x / s              # sum = 1
-    theta[:idxStart] *= u[:idxStart]
-
-    # theta[:idxStart] = u[:idxStart] / (1-np.sum(u[:idxStart])) ## Ensures the sum of ALL coeffs. 
+    # Magnetic filling factors: symmetric Dirichlet(1,...,1) prior over ALL
+    # nbOfFields components (including the zero-field component, which is
+    # derived as 1 - sum(free)).  Only u[:idxStart] are consumed here;
+    # u[idxStart] onward belong to the atmospheric/broadening parameters.
+    #
+    # We draw (idxStart+1) Gamma(1,1) variates from only idxStart cube dims
+    # by using a fixed variate (1.0 = the mean of Exp(1)) for the zero-field
+    # component.  This gives a symmetric Dirichlet draw that sums to 1.
+    if idxStart > 0:
+        gamma_free = -np.log(np.clip(u[:idxStart], 1e-300, None))  # Exp(1) variates
+        gamma_zero = 1.0  # fixed variate for the zero-field component
+        gamma_sum = gamma_free.sum() + gamma_zero
+        theta[:idxStart] = gamma_free / gamma_sum   # free fractions; zero-field = gamma_zero / gamma_sum
 
     return theta
 
 SA.return_warning_nanlikelidhood = False
 def lnprob(par):
-    if sampler_type in ("dynesty", "ultranest"):
+    # For nested samplers the prior is encoded in prior_transform;
+    # lnprior is only needed by emcee.
+    if sampler_type not in ("dynesty", "ultranest"):
         lp = SA.lnprior(par)
+        if not np.isfinite(lp):
+            return -np.inf
     else:
         lp = 0
     try:
         like = SA.lnlike(par)
     except ValueError as e:
         if "could not broadcast" in str(e) or "Shape mismatch" in str(e):
-            # Catch the broadening kernel error or shape mismatches
-            # These can occur when ultranest tests extreme parameter values during init
             if SA.debugMode:
                 print(f"\n[WARNING] Array shape mismatch (likely valid during ultranest init):")
                 print(f"Parameters: {SA.PARAMS_FIT}")
                 print(f"Values: {par}")
                 print(f"Error: {e}")
-            # Return very negative likelihood to reject this step
-            return -np.inf
+            # Use finite penalty for nested samplers (-inf creates plateaus
+            # UltraNest cannot traverse); emcee expects -inf for rejection.
+            return -1e100 if sampler_type in ("dynesty", "ultranest") else -np.inf
         else:
             raise
+    if not np.isfinite(like):
+        return -1e100 if sampler_type in ("dynesty", "ultranest") else -np.inf
     return lp + like
 #
 ndim = SA.ndim ## To avoid class call in MCMC
+
+# Vectorized wrappers for UltraNest's vectorized=True mode.
+# These receive (N, ndim) arrays and return (N,) / (N, ndim) arrays.
+def lnprob_vectorized(params_batch):
+    return np.array([lnprob(par) for par in params_batch])
+
+def prior_transform_vectorized(u_batch):
+    return np.array([prior_transform(u) for u in u_batch])
 
 
 #####################################
@@ -527,6 +578,11 @@ ndim = SA.ndim ## To avoid class call in MCMC
 #####################################
 
 os.environ["OMP_NUM_THREADS"] = "1"
+
+# MPI detection was moved earlier (after argparse) so that file I/O
+# in the initialisation phase can be guarded by rank == 0.
+if mpi_size > 1:
+    print(f'MPI detected: rank {mpi_rank} of {mpi_size}')
 
 # Set up the emcee backend (only needed for emcee)
 CONTINUE_BACKEND = False
@@ -542,7 +598,91 @@ if sampler_type == "emcee" and SA.savebackend:
         CONTINUE_BACKEND = False
         backend.reset(nwalkers, ndim)
 
-if SA.parallel:
+# ---------------------------------------------------------------------------
+# UltraNest parallelisation guide:
+#
+#   UltraNest does NOT use Python multiprocessing pools.  Instead it relies
+#   on MPI for distributing likelihood evaluations across cores/nodes.
+#
+#   Single-core run:
+#       python -m asap <star> -u --nlive 400 --logdir ./ultranest_run
+#
+#   Multi-core run (MPI, recommended):
+#       mpiexec -n <ncores> python -m asap <star> -u --nlive 400 --logdir ./ultranest_run
+#
+#   Make sure OMP_NUM_THREADS=1 (set above) to prevent numpy/BLAS from
+#   spawning threads that compete with MPI ranks.
+#
+#   Do NOT combine --parallel / multiprocessing with UltraNest MPI; they are
+#   mutually exclusive parallelisation strategies.
+# ---------------------------------------------------------------------------
+
+# Decide whether to use a multiprocessing pool.
+# UltraNest handles its own parallelism via MPI, so skip the pool for it.
+use_pool = SA.parallel and sampler_type not in ("ultranest",) and mpi_size == 1
+
+if sampler_type == "ultranest":
+    # --- UltraNest path (no multiprocessing pool) ---
+    print("Launching UltraNest (ndim={})".format(ndim))
+    if mpi_size > 1:
+        print(f"  MPI parallelisation active: {mpi_size} ranks")
+    else:
+        print("  Running single-core. For parallel execution use:")
+        print("    mpiexec -n {} python -m asap {} -u --nlive {} --logdir <dir>".format(
+            ncores, star, nlive))
+
+    resume_policy = 'overwrite' if args.logdir is None else 'resume-similar'
+    sampler = ultranest.ReactiveNestedSampler(
+        labels, lnprob_vectorized, prior_transform_vectorized,
+        log_dir=args.logdir,
+        resume=resume_policy,
+        vectorized=True,
+    )
+
+    # Attach a step sampler for problems with ndim > 10.
+    # MLFriends region sampling degrades at ~15D with vectorized=True
+    # (region rejection becomes inefficient as posterior concentrates).
+    # Use a modest nsteps (2*ndim) to avoid the overhead of large nsteps
+    # while preventing the region sampling collapse.
+    # Override with --nsteps for manual tuning.
+    if args.nsteps is not None or ndim > 10:
+        nsteps_slice = args.nsteps if args.nsteps is not None else 2 * ndim
+        if mpi_size > 1:
+            import ultranest.popstepsampler
+            popsize = mpi_size
+            print(f"  Using PopulationSliceSampler (popsize={popsize}, nsteps={nsteps_slice})")
+            sampler.stepsampler = ultranest.popstepsampler.PopulationSliceSampler(
+                popsize=popsize,
+                nsteps=nsteps_slice,
+                generate_direction=ultranest.popstepsampler.generate_region_oriented_direction,
+            )
+        else:
+            import ultranest.stepsampler
+            print(f"  Using SliceSampler step sampler (nsteps={nsteps_slice})")
+            sampler.stepsampler = ultranest.stepsampler.SliceSampler(
+                nsteps=nsteps_slice,
+                generate_direction=ultranest.stepsampler.generate_region_oriented_direction,
+            )
+
+    itime = time.time()
+    result_raw = sampler.run(
+        min_num_live_points=nlive,
+        dlogz=0.5 + 0.1 * ndim,
+        min_ess=400,
+        max_num_improvement_loops=3,
+        update_interval_volume_fraction=0.4 if ndim > 20 else 0.2,
+    )
+    etime = time.time()
+
+    # Worker ranks must exit after UltraNest completes — only rank 0
+    # should do post-processing (saving results, plotting, etc.).
+    # Without this guard every MPI rank writes to the same output files,
+    # causing race conditions and potential file corruption.
+    if mpi_size > 1 and mpi_rank != 0:
+        MPI.Finalize()
+        sys.exit(0)
+
+elif use_pool:
     print(f'Running in parallel mode with ncores={ncores}')
 
     if sys.platform == "darwin":
@@ -553,17 +693,7 @@ if SA.parallel:
 
     with __p as pool:
         # --- Phase 1: Create sampler ---
-        if sampler_type == "ultranest":
-            print("Launching UltraNest")
-            print("  Note: UltraNest runs single-core within this process.")
-            print("  For parallel UltraNest, use: mpiexec -n {} python -m asap ...".format(ncores))
-            resume_policy = 'overwrite' if args.logdir is None else 'resume-similar'
-            sampler = ultranest.ReactiveNestedSampler(
-                labels, lnprob, prior_transform,
-                log_dir=args.logdir,
-                resume=resume_policy,
-            )
-        elif sampler_type == "dynesty":
+        if sampler_type == "dynesty":
             print("Launching dynesty in Parallel")
             sampler = NestedSampler(
                 lnprob, prior_transform, ndim,
@@ -578,9 +708,7 @@ if SA.parallel:
 
         # --- Phase 2: Run sampler ---
         itime = time.time()
-        if sampler_type == "ultranest":
-            result_raw = sampler.run(min_num_live_points=nlive)
-        elif sampler_type == "dynesty":
+        if sampler_type == "dynesty":
             sampler.run_nested()
         else:
             if CONTINUE_BACKEND:
@@ -593,15 +721,7 @@ else:
     print('Running in non parallel mode')
 
     # --- Phase 1: Create sampler ---
-    if sampler_type == "ultranest":
-        print("Launching UltraNest")
-        resume_policy = 'overwrite' if args.logdir is None else 'resume-similar'
-        sampler = ultranest.ReactiveNestedSampler(
-            labels, lnprob, prior_transform,
-            log_dir=args.logdir,
-            resume=resume_policy,
-        )
-    elif sampler_type == "dynesty":
+    if sampler_type == "dynesty":
         sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nlive)
     else:
         sampler = emcee.EnsembleSampler(
@@ -617,9 +737,7 @@ else:
         else:
             cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort=True)
     else:
-        if sampler_type == "ultranest":
-            result_raw = sampler.run(min_num_live_points=nlive)
-        elif sampler_type == "dynesty":
+        if sampler_type == "dynesty":
             print("Launching dynesty")
             sampler.run_nested()
         else:

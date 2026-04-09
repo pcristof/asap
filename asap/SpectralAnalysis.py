@@ -2652,8 +2652,6 @@ class SpectralAnalysis:
         dopshift = tls.doppler(rv)
         _Bspec = np.zeros((self.d5, self.d6, self.nb_mus, self.d7))
         _Conts = np.zeros((self.d5, self.d6, self.nb_mus, self.d7))
-        import time
-        itime = time.time()
         for i in range(self.d5):
             # except:
             # # try:        
@@ -2745,17 +2743,12 @@ class SpectralAnalysis:
         # _, _, _, fit0, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
         #                                                 macProf='g')
 
-        import time
-        itime = time.time()
-        for II in range(1000):
-            args = [0, nwvls_shift, disk_integrated_spectrum, obs_wvl, obs_flux, obs_err, 
-                    nan_mask, totvb, vmac, vsini, 
-                    0, 0, 0, '0', self.adjcont, 'line']
-            ## fit is the model after broadening and adjustment
-            _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-                                                            macProf='g')
-        etime = time.time()
-        print(f"Time: {etime-itime}")
+        args = [0, nwvls_shift, disk_integrated_spectrum, obs_wvl, obs_flux, obs_err,
+                nan_mask, totvb, vmac, vsini,
+                0, 0, 0, '0', self.adjcont, 'line']
+        ## fit is the model after broadening and adjustment
+        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args,
+                                                        macProf='g')
 
         # ## New cython implementation should be faster
         # fit, _c = broaden_spectra_cy(nwvls_shift, disk_integrated_spectrum, 
@@ -2802,8 +2795,6 @@ class SpectralAnalysis:
             except:
                 raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
             _Bspec[i] = s
-        etime = time.time()
-        print(f'Time:{etime-itime}')
 
         mergedspec = np.empty((self.d6, self.d7))
 
@@ -4051,6 +4042,17 @@ class SpectralAnalysis:
             ###################################
 
             cornerfont = 25
+
+            # Compute weighted-quantile ranges so the corner plot zooms into
+            # the posterior mass instead of spanning the full prior volume.
+            from asap.sampler_utils import weighted_percentile
+            corner_ranges = []
+            for i in range(nssamples.shape[1]):
+                lo = weighted_percentile(nssamples[:, i], sample_weights, [0.1])[0]
+                hi = weighted_percentile(nssamples[:, i], sample_weights, [99.9])[0]
+                margin = 0.1 * (hi - lo)
+                corner_ranges.append((lo - margin, hi + margin))
+
             CORNER_KWARGS = dict(
                 smooth=0.5,
                 label_kwargs=dict(fontsize=cornerfont),
@@ -4061,12 +4063,13 @@ class SpectralAnalysis:
                 titles=["" for i in range(len(labels))],
                 # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
                 # plot_density=False,
-                # plot_datapoints=False,
+                plot_datapoints=False,
                 fill_contours=True,
                 show_titles=True,
                 max_n_ticks=3,
                 # title_fmt=".2E",
-                labels=labels
+                labels=labels,
+                range=corner_ranges,
             )
 
             plottrig = True
@@ -4118,21 +4121,25 @@ class SpectralAnalysis:
                 if self.fitFields:
                     _ndim = 1
                     _labels = ['<B> (kG)']
+                    lo = weighted_percentile(meanfield, sample_weights, [0.1])[0]
+                    hi = weighted_percentile(meanfield, sample_weights, [99.9])[0]
+                    margin = 0.1 * (hi - lo)
                     CORNER_KWARGS = dict(
                         smooth=0.5,
                         label_kwargs=dict(fontsize=18),
                         title_kwargs=dict(fontsize=18),
                         quantiles=[0.16, 0.5, 0.84],
                         # titles=["" for i in range(len(labels))],
-                        # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 
+                        # levels=(1 - np.exp(-0.5), 1 - np.exp(-2),
                         #         1 - np.exp(-9 / 2.)),
                         # plot_density=False,
-                        # plot_datapoints=False,
+                        plot_datapoints=False,
                         fill_contours=True,
                         show_titles=True,
                         max_n_ticks=3,
                         # title_fmt=".2E",
-                        labels=_labels
+                        labels=_labels,
+                        range=[(lo - margin, hi + margin)],
                     )
                     ## Make the ticks bigger
                     for ax in fig.get_axes():
@@ -4195,6 +4202,14 @@ class SpectralAnalysis:
                 if self.fitFields:
                     _labels = ['<B> (kG)', r"$a_0$"]
                     _ndim = len(_labels)
+                    non_mag = nssamples.T[0]
+                    nonmag_meanfield = np.array([meanfield, non_mag])
+                    a0b_ranges = []
+                    for col in nonmag_meanfield:
+                        lo = weighted_percentile(col, sample_weights, [0.1])[0]
+                        hi = weighted_percentile(col, sample_weights, [99.9])[0]
+                        margin = 0.1 * (hi - lo)
+                        a0b_ranges.append((lo - margin, hi + margin))
                     CORNER_KWARGS = dict(
                         smooth=0.5,
                         label_kwargs=dict(fontsize=18),
@@ -4203,12 +4218,13 @@ class SpectralAnalysis:
                         titles=["" for i in range(len(labels))],
                         # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
                         # plot_density=False,
-                        # plot_datapoints=False,
+                        plot_datapoints=True,
                         fill_contours=True,
                         show_titles=True,
                         max_n_ticks=3,
                         # title_fmt=".2E",
-                        labels=_labels
+                        labels=_labels,
+                        range=a0b_ranges,
                     )
 
                     ## Make the ticks bigger
@@ -4216,8 +4232,6 @@ class SpectralAnalysis:
                         ax.tick_params(axis='both', labelsize=16)
                         ax.title.set_fontsize("16")
                     ## Corner plots
-                    non_mag = nssamples.T[0]
-                    nonmag_meanfield = np.array([meanfield, non_mag])
                     fig = corner.corner(nonmag_meanfield.T, weights=sample_weights, **CORNER_KWARGS)
                     # print('If I am right this is the mean field: {} '.format(np.median(nonmag_meanfield[1])))
                     # print('And so this is the max field: {} '.format(np.max(nonmag_meanfield[1])))

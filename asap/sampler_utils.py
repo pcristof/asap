@@ -66,7 +66,7 @@ def weighted_percentile(data, weights, percentiles):
     sorted_data = data[sorted_idx]
     sorted_weights = weights[sorted_idx]
     cumulative = np.cumsum(sorted_weights)
-    cumulative = (cumulative - 0.5 * sorted_weights) / cumulative[-1]
+    cumulative = (cumulative - 0.5 * sorted_weights) / cumulative[-1] # Normalize to [0, 1], using midpoints of weights for interpolation
     return np.interp(percentiles, cumulative, sorted_data)
 
 
@@ -171,8 +171,14 @@ def extract_ultranest(result):
     ws = result["weighted_samples"]
     samples_weighted = np.array(ws["points"])
     logl_weighted = np.array(ws["logl"])
-    w = np.array(ws["weights"])
-    w /= w.sum()
+    w = np.array(ws["weights"], dtype=float)
+
+    wsum = w.sum()
+    if (not np.isfinite(wsum)) or (wsum <= 0):
+        w = np.ones(len(samples_weighted), dtype=float)
+        w /= len(samples_weighted)
+    else:
+        w /= wsum
 
     return SamplerResult(
         samples=samples_weighted,
