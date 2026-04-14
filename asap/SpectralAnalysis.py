@@ -368,7 +368,7 @@ class SpectralAnalysis:
         self.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
-        self.sampler_type = "emcee"  # Default; set by __main__.py
+        self.sampler_type = "emcee"  # Default; can be overridden by config or __main__.py
         self.sampler_result = None   # Set by __main__.py after sampler run
         self.teffs = np.arange(2700., 4000., 100.);
         self.loggs = np.arange(4.0, 6., .5)
@@ -417,6 +417,16 @@ class SpectralAnalysis:
         ## Advance options
         self.debugMode = False
         self.savebackend = False
+        ## UltraNest options
+        self.ultranest_min_num_live_points = 400
+        self.ultranest_nsteps = None
+        self.ultranest_dlogz = None
+        self.ultranest_min_ess = 400
+        self.ultranest_max_num_improvement_loops = 3
+        self.ultranest_update_interval_volume_fraction = None
+        self.ultranest_step_sampler = 'auto'
+        self.ultranest_resume = 'overwrite'
+        self.ultranest_vectorized = True
         self.minLineDepthFit = 1.0
         self.errType = 'std'
         ## Normalization factor used to in lnlike
@@ -606,6 +616,22 @@ class SpectralAnalysis:
         config = ConfigParser(interpolation=ExtendedInterpolation())
         config.read(config_file)
 
+        def _read_int_or_none(section, key, default):
+            if not config.has_option(section, key):
+                return default
+            value = config[section][key].strip()
+            if value.lower() in ('none', 'auto'):
+                return None
+            return int(value)
+
+        def _read_float_or_none(section, key, default):
+            if not config.has_option(section, key):
+                return default
+            value = config[section][key].strip()
+            if value.lower() in ('none', 'auto'):
+                return None
+            return float(value)
+
         ## ----------------------------------------------------
         ## READ THE OPTIONS
         #
@@ -668,6 +694,13 @@ class SpectralAnalysis:
             instrument = config['MAIN']['instrument']
         except:
             instrument = self.instrument
+        if config.has_option('MAIN', 'sampler'):
+            sampler = config['MAIN']['sampler'].strip().lower()
+        else:
+            sampler = self.sampler_type
+        allowed_samplers = ('emcee', 'dynesty', 'ultranest')
+        if sampler not in allowed_samplers:
+            raise Exception('config: sampler option not understood. Expected one of {}'.format(allowed_samplers))
         renorm      = config.getboolean('MAIN', 'reNorm')
         normFactor  = config['MAIN']['normFactor']
         if "none" in normFactor.lower():
@@ -824,6 +857,44 @@ class SpectralAnalysis:
         parallel    = config.getboolean('MCMC', 'parallel')
         nbCores     = int(config['MCMC']['nbCores'])
         saveBackend = config.getboolean('MCMC', 'saveBackend')
+
+        ## ULTRANEST OPTIONS
+        ultranest_min_num_live_points = self.ultranest_min_num_live_points
+        ultranest_nsteps = self.ultranest_nsteps
+        ultranest_dlogz = self.ultranest_dlogz
+        ultranest_min_ess = self.ultranest_min_ess
+        ultranest_max_num_improvement_loops = self.ultranest_max_num_improvement_loops
+        ultranest_update_interval_volume_fraction = self.ultranest_update_interval_volume_fraction
+        ultranest_step_sampler = self.ultranest_step_sampler
+        ultranest_resume = self.ultranest_resume
+        ultranest_vectorized = self.ultranest_vectorized
+
+        if config.has_section('ULTRANEST'):
+            ultranest_min_num_live_points = _read_int_or_none(
+                'ULTRANEST', 'min_num_live_points', ultranest_min_num_live_points)
+            ultranest_nsteps = _read_int_or_none('ULTRANEST', 'nsteps', ultranest_nsteps)
+            ultranest_dlogz = _read_float_or_none('ULTRANEST', 'dlogz', ultranest_dlogz)
+            if config.has_option('ULTRANEST', 'min_ess'):
+                ultranest_min_ess = int(config['ULTRANEST']['min_ess'])
+            if config.has_option('ULTRANEST', 'max_num_improvement_loops'):
+                ultranest_max_num_improvement_loops = int(config['ULTRANEST']['max_num_improvement_loops'])
+            ultranest_update_interval_volume_fraction = _read_float_or_none(
+                'ULTRANEST', 'update_interval_volume_fraction', ultranest_update_interval_volume_fraction)
+            if config.has_option('ULTRANEST', 'step_sampler'):
+                ultranest_step_sampler = config['ULTRANEST']['step_sampler'].strip().lower()
+            if config.has_option('ULTRANEST', 'resume'):
+                ultranest_resume = config['ULTRANEST']['resume'].strip().lower()
+            if config.has_option('ULTRANEST', 'vectorized'):
+                ultranest_vectorized = config.getboolean('ULTRANEST', 'vectorized')
+
+        allowed_ultranest_step_samplers = ('auto', 'none', 'slice', 'population')
+        if ultranest_step_sampler not in allowed_ultranest_step_samplers:
+            raise Exception('config: ULTRANEST step_sampler not understood. Expected one of {}'.format(
+                allowed_ultranest_step_samplers))
+        allowed_ultranest_resume = ('overwrite', 'resume', 'subfolder')
+        if ultranest_resume not in allowed_ultranest_resume:
+            raise Exception('config: ULTRANEST resume not understood. Expected one of {}'.format(
+                allowed_ultranest_resume))
         ## ----------------------------------------------------
         ## SET UP ENVIRONMENT VARIABLES
         #
@@ -920,6 +991,16 @@ class SpectralAnalysis:
         self.set_parallel(parallel)
         self.set_ncores(nbCores) ## Number of cores to use for the MCMC
         self.set_savebackend(saveBackend) ## Number of cores to use for the MCMC
+        self.sampler_type = sampler
+        self.ultranest_min_num_live_points = ultranest_min_num_live_points
+        self.ultranest_nsteps = ultranest_nsteps
+        self.ultranest_dlogz = ultranest_dlogz
+        self.ultranest_min_ess = ultranest_min_ess
+        self.ultranest_max_num_improvement_loops = ultranest_max_num_improvement_loops
+        self.ultranest_update_interval_volume_fraction = ultranest_update_interval_volume_fraction
+        self.ultranest_step_sampler = ultranest_step_sampler
+        self.ultranest_resume = ultranest_resume
+        self.ultranest_vectorized = ultranest_vectorized
         #
         self.set_veilingBands(veilingBands) ## veiling factor
         self.set_veilingFac(veilingFac) ## veiling factor
