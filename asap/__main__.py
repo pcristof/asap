@@ -180,7 +180,6 @@ SA.read_config(config_file_copy)
 
 ## Override magFields and/or fillFactors from CLI if provided
 if args.magfields is not None or args.fillfactors is not None:
-    import configparser as configparser
     ## Validate consistency between magfields and fillfactors
     n_bs = len(args.magfields) if args.magfields is not None else len(SA.bs)
     n_ff = len(args.fillfactors) if args.fillfactors is not None else len(SA.fillFactors)
@@ -199,15 +198,36 @@ if args.magfields is not None or args.fillfactors is not None:
         if mpi_rank == 0:
             print(f'CLI override: fillFactors set to {args.fillfactors}')
     SA.init_PARAMS()
-    ## Only rank 0 writes the config copy to disk
-    if mpi_rank == 0:
+
+## Keep config copy in sync with CLI overrides for reproducibility
+if mpi_rank == 0:
+    should_update_config_copy = (
+        args.magfields is not None
+        or args.fillfactors is not None
+        or args.nlive is not None
+        or args.nsteps is not None
+        or args.run_ultranest
+        or args.dynesty
+    )
+    if should_update_config_copy:
         os.chmod(config_file_copy, 0o644)
         _cfg = configparser.ConfigParser()
         _cfg.read(config_file_copy)
+        if not _cfg.has_section('MAIN'):
+            _cfg.add_section('MAIN')
         if args.magfields is not None:
             _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
         if args.fillfactors is not None:
             _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
+        _cfg['MAIN']['sampler'] = sampler_type
+
+        if not _cfg.has_section('ULTRANEST'):
+            _cfg.add_section('ULTRANEST')
+        if args.nlive is not None:
+            _cfg['ULTRANEST']['min_num_live_points'] = str(args.nlive)
+        if args.nsteps is not None:
+            _cfg['ULTRANEST']['nsteps'] = str(args.nsteps)
+
         with open(config_file_copy, 'w') as _f:
             _cfg.write(_f)
         os.chmod(config_file_copy, 0o444)

@@ -4797,6 +4797,16 @@ class SpectralAnalysis:
                         'int:input_nbSteps',
                         'int:input_nbCores',
                         'str:input_saveBackend',
+                        'str:input_sampler',
+                        'str:input_ultranest_min_num_live_points',
+                        'str:input_ultranest_nsteps',
+                        'str:input_ultranest_dlogz',
+                        'str:input_ultranest_min_ess',
+                        'str:input_ultranest_max_num_improvement_loops',
+                        'str:input_ultranest_update_interval_volume_fraction',
+                        'str:input_ultranest_step_sampler',
+                        'str:input_ultranest_resume',
+                        'str:input_ultranest_vectorized',
                         'sep:-',
                         'str:input_pathToGrid',
                         'str:input_pathToData',
@@ -4894,6 +4904,17 @@ class SpectralAnalysis:
         resdict['input_nbSteps'] = self.nsteps
         resdict['input_nbCores'] = self.ncores
         resdict['input_saveBackend'] = self.savebackend
+        resdict['input_sampler'] = self.sampler_type
+        resdict['input_ultranest_min_num_live_points'] = str(self.ultranest_min_num_live_points)
+        resdict['input_ultranest_nsteps'] = str(self.ultranest_nsteps)
+        resdict['input_ultranest_dlogz'] = str(self.ultranest_dlogz)
+        resdict['input_ultranest_min_ess'] = str(self.ultranest_min_ess)
+        resdict['input_ultranest_max_num_improvement_loops'] = str(self.ultranest_max_num_improvement_loops)
+        resdict['input_ultranest_update_interval_volume_fraction'] = str(
+            self.ultranest_update_interval_volume_fraction)
+        resdict['input_ultranest_step_sampler'] = str(self.ultranest_step_sampler)
+        resdict['input_ultranest_resume'] = str(self.ultranest_resume)
+        resdict['input_ultranest_vectorized'] = str(self.ultranest_vectorized)
         resdict['input_pathToGrid'] = self.pathtogrid
         resdict['input_pathToData'] = self.pathtodata
         resdict['input_lineListFile'] = self.linelist
