@@ -8,6 +8,7 @@ from asap.spectral_analysis_pack import broaden_spectra
 import sys
 import os
 import argparse ## To read optional arguments
+import configparser
 from asap import io_tools
 # from schwimmbad import MPIPool
 
@@ -36,11 +37,10 @@ parser.add_argument("-d", "--dynesty", action='store_true', default=False,
                     help='Use dynesty nested sampling instead of emcee')
 parser.add_argument("-u", "--run_ultranest", action='store_true', default=False,
                     help='Use UltraNest reactive nested sampling instead of emcee')
-parser.add_argument("--nlive", type=int, default=400,
-                    help='Number of live points for nested sampling (default: 400)')
+parser.add_argument("--nlive", type=int, default=None,
+                    help='Override live points for nested sampling (config-first when omitted).')
 parser.add_argument("--nsteps", type=int, default=None,
-                    help='Number of slice steps for UltraNest step sampler. '
-                         'Default: max(4*ndim, 50). Increase if rel jump distance < 1.')
+                    help='Override step-sampler nsteps for UltraNest (config-first when omitted).')
 parser.add_argument("--magfields", nargs='+', type=float, default=None,
                     help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
 parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
@@ -48,15 +48,39 @@ parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
 
 args = parser.parse_args()
 # plotfit = args.plotfit
-nlive = args.nlive
+locpath = os.getcwd()
+config_file = locpath + '/config.ini'
 
-# Determine sampler type
-if args.run_ultranest:
-    sampler_type = "ultranest"
-elif args.dynesty:
-    sampler_type = "dynesty"
-else:
-    sampler_type = "emcee"
+
+def resolve_sampler_type(cli_args, config_path):
+    """Resolve sampler with precedence: CLI flags > config.ini > default."""
+    if cli_args.run_ultranest:
+        return "ultranest"
+    if cli_args.dynesty:
+        return "dynesty"
+
+    if not os.path.isfile(config_path):
+        return "emcee"
+
+    cfg = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
+    cfg.read(config_path)
+    if not cfg.has_option('MAIN', 'sampler'):
+        return "emcee"
+
+    sampler_from_config = cfg['MAIN']['sampler'].strip().lower()
+    allowed_samplers = ('emcee', 'dynesty', 'ultranest')
+    if sampler_from_config not in allowed_samplers:
+        raise ValueError(
+            "Invalid [MAIN] sampler='{}'. Expected one of {}.".format(
+                sampler_from_config, allowed_samplers)
+        )
+    return sampler_from_config
+
+
+# Determine sampler type from CLI/config.
+sampler_type = resolve_sampler_type(args, config_file)
+# Keep dynesty default behavior unchanged if no explicit live-point override is set.
+nlive = args.nlive if args.nlive is not None else 400
 
 # ---------------------------------------------------------------------------
 # Early MPI detection — needed before any file I/O so that only rank 0
@@ -88,9 +112,6 @@ profile = args.profile
 
 #
 # import config as config
-
-locpath = os.getcwd()
-config_file = locpath + '/config.ini'
 infile = None
 
 if star is None:
@@ -625,6 +646,21 @@ use_pool = SA.parallel and sampler_type not in ("ultranest",) and mpi_size == 1
 
 if sampler_type == "ultranest":
     # --- UltraNest path (no multiprocessing pool) ---
+    if args.nlive is not None:
+        nlive = args.nlive
+    elif SA.ultranest_min_num_live_points is not None:
+        nlive = SA.ultranest_min_num_live_points
+    else:
+        nlive = 400
+
+    nsteps_slice = args.nsteps if args.nsteps is not None else SA.ultranest_nsteps
+    dlogz = SA.ultranest_dlogz
+    if dlogz is None:
+        dlogz = 0.5 + 0.1 * ndim
+    update_interval_volume_fraction = SA.ultranest_update_interval_volume_fraction
+    if update_interval_volume_fraction is None:
+        update_interval_volume_fraction = 0.4 if ndim > 20 else 0.2
+
     print("Launching UltraNest (ndim={})".format(ndim))
     if mpi_size > 1:
         print(f"  MPI parallelisation active: {mpi_size} ranks")
@@ -632,25 +668,32 @@ if sampler_type == "ultranest":
         print("  Running single-core. For parallel execution use:")
         print("    mpiexec -n {} python -m asap {} -u --nlive {}".format(
             ncores, star, nlive))
+    print("  UltraNest settings: nlive={}, dlogz={}, min_ess={}, resume={}, vectorized={}".format(
+        nlive, dlogz, SA.ultranest_min_ess, SA.ultranest_resume, SA.ultranest_vectorized))
     print(f"  UltraNest logs: {ultranest_logdir}")
 
-    resume_policy = 'overwrite'
+    resume_policy = SA.ultranest_resume
     sampler = ultranest.ReactiveNestedSampler(
         labels, lnprob_vectorized, prior_transform_vectorized,
         log_dir=ultranest_logdir,
         resume=resume_policy,
-        vectorized=True,
+        vectorized=SA.ultranest_vectorized,
     )
 
-    # Attach a step sampler for problems with ndim > 10.
-    # MLFriends region sampling degrades at ~15D with vectorized=True
-    # (region rejection becomes inefficient as posterior concentrates).
-    # Use a modest nsteps (2*ndim) to avoid the overhead of large nsteps
-    # while preventing the region sampling collapse.
-    # Override with --nsteps for manual tuning.
-    if args.nsteps is not None or ndim > 10:
-        nsteps_slice = args.nsteps if args.nsteps is not None else 2 * ndim
-        if mpi_size > 1:
+    # Configure optional step sampler using config-first settings.
+    step_sampler_mode = SA.ultranest_step_sampler
+    if step_sampler_mode == 'auto':
+        enable_step_sampler = (nsteps_slice is not None) or (ndim > 10)
+        requested_step_sampler = 'population' if mpi_size > 1 else 'slice'
+    else:
+        enable_step_sampler = step_sampler_mode != 'none'
+        requested_step_sampler = step_sampler_mode
+
+    if enable_step_sampler:
+        if nsteps_slice is None:
+            nsteps_slice = 2 * ndim
+
+        if requested_step_sampler == 'population' and mpi_size > 1:
             import ultranest.popstepsampler
             popsize = mpi_size
             print(f"  Using PopulationSliceSampler (popsize={popsize}, nsteps={nsteps_slice})")
@@ -661,6 +704,8 @@ if sampler_type == "ultranest":
             )
         else:
             import ultranest.stepsampler
+            if requested_step_sampler == 'population' and mpi_size == 1:
+                print("  Requested population step sampler without MPI; falling back to SliceSampler")
             print(f"  Using SliceSampler step sampler (nsteps={nsteps_slice})")
             sampler.stepsampler = ultranest.stepsampler.SliceSampler(
                 nsteps=nsteps_slice,
@@ -670,10 +715,10 @@ if sampler_type == "ultranest":
     itime = time.time()
     result_raw = sampler.run(
         min_num_live_points=nlive,
-        dlogz=0.5 + 0.1 * ndim,
-        min_ess=400,
-        max_num_improvement_loops=3,
-        update_interval_volume_fraction=0.4 if ndim > 20 else 0.2,
+        dlogz=dlogz,
+        min_ess=SA.ultranest_min_ess,
+        max_num_improvement_loops=SA.ultranest_max_num_improvement_loops,
+        update_interval_volume_fraction=update_interval_volume_fraction,
     )
     etime = time.time()
 
