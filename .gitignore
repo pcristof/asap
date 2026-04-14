@@ -1,0 +1,8 @@
+.DS_Store
+asap.egg-info
+asap/c_tools/*.c
+build/
+config
+description
+hooks/
+info/
