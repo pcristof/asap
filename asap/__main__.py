@@ -648,10 +648,10 @@ if sampler_type == "emcee" and SA.savebackend:
 #   on MPI for distributing likelihood evaluations across cores/nodes.
 #
 #   Single-core run:
-#       python -m asap <star> -u --nlive 400
+#       python -m asap <star> -u
 #
 #   Multi-core run (MPI, recommended):
-#       mpiexec -n <ncores> python -m asap <star> -u --nlive 400
+#       mpiexec -n <ncores> python -m asap <star> -u
 #
 #   Make sure OMP_NUM_THREADS=1 (set above) to prevent numpy/BLAS from
 #   spawning threads that compete with MPI ranks.

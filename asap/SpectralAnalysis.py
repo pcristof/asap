@@ -5080,7 +5080,7 @@ class SpectralAnalysis:
                 titles=["" for i in range(len(labels))],
                 # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
                 # plot_density=False,
-                # plot_datapoints=False,
+                plot_datapoints=True,
                 fill_contours=True,
                 show_titles=True,
                 max_n_ticks=3,
