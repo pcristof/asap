@@ -1,19 +1,10 @@
-/testing
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-*.py[cod]
-*$py.class
-*.nbc
-*.nbi
-
-# Build/packaging artifacts
-build/
-*.egg-info/
-
-# Compiled extension artifacts
-*.so
-
-# Cython-generated C outputs for this package
+.DS_Store
+asap.egg-info
 asap/c_tools/*.c
+build/
+config
+description
+hooks/
+info/
+__pycache__/
+testing/
