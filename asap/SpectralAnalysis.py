@@ -65,6 +65,7 @@ from asap.spectral_analysis_pack import fill_nans_wavelength_v2
 from asap.spectral_analysis_pack import fill_nans_wavelength_v3
 from asap.line_selection_tools import find_optimal_order
 import corner
+from asap.sampler_utils import SamplerResult, weighted_percentile
 
 import shutil
 
@@ -367,7 +368,9 @@ class SpectralAnalysis:
         self.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
-        self.teffs = np.arange(2700., 4000., 100.); 
+        self.sampler_type = "emcee"  # Default; can be overridden by config or __main__.py
+        self.sampler_result = None   # Set by __main__.py after sampler run
+        self.teffs = np.arange(2700., 4000., 100.);
         self.loggs = np.arange(4.0, 6., .5)
         self.mhs = np.arange(-1.0, 1.0, .5); 
         self.alphas = np.arange(-0.25, 0.75, .25); 
@@ -414,6 +417,16 @@ class SpectralAnalysis:
         ## Advance options
         self.debugMode = False
         self.savebackend = False
+        ## UltraNest options
+        self.ultranest_min_num_live_points = 400
+        self.ultranest_nsteps = None
+        self.ultranest_dlogz = None
+        self.ultranest_min_ess = 400
+        self.ultranest_max_num_improvement_loops = 3
+        self.ultranest_update_interval_volume_fraction = None
+        self.ultranest_step_sampler = 'auto'
+        self.ultranest_resume = 'overwrite'
+        self.ultranest_vectorized = True
         self.minLineDepthFit = 1.0
         self.errType = 'std'
         ## Normalization factor used to in lnlike
@@ -603,6 +616,22 @@ class SpectralAnalysis:
         config = ConfigParser(interpolation=ExtendedInterpolation())
         config.read(config_file)
 
+        def _read_int_or_none(section, key, default):
+            if not config.has_option(section, key):
+                return default
+            value = config[section][key].strip()
+            if value.lower() in ('none', 'auto'):
+                return None
+            return int(value)
+
+        def _read_float_or_none(section, key, default):
+            if not config.has_option(section, key):
+                return default
+            value = config[section][key].strip()
+            if value.lower() in ('none', 'auto'):
+                return None
+            return float(value)
+
         ## ----------------------------------------------------
         ## READ THE OPTIONS
         #
@@ -665,6 +694,13 @@ class SpectralAnalysis:
             instrument = config['MAIN']['instrument']
         except:
             instrument = self.instrument
+        if config.has_option('MAIN', 'sampler'):
+            sampler = config['MAIN']['sampler'].strip().lower()
+        else:
+            sampler = self.sampler_type
+        allowed_samplers = ('emcee', 'dynesty', 'ultranest')
+        if sampler not in allowed_samplers:
+            raise Exception('config: sampler option not understood. Expected one of {}'.format(allowed_samplers))
         renorm      = config.getboolean('MAIN', 'reNorm')
         normFactor  = config['MAIN']['normFactor']
         if "none" in normFactor.lower():
@@ -821,6 +857,44 @@ class SpectralAnalysis:
         parallel    = config.getboolean('MCMC', 'parallel')
         nbCores     = int(config['MCMC']['nbCores'])
         saveBackend = config.getboolean('MCMC', 'saveBackend')
+
+        ## ULTRANEST OPTIONS
+        ultranest_min_num_live_points = self.ultranest_min_num_live_points
+        ultranest_nsteps = self.ultranest_nsteps
+        ultranest_dlogz = self.ultranest_dlogz
+        ultranest_min_ess = self.ultranest_min_ess
+        ultranest_max_num_improvement_loops = self.ultranest_max_num_improvement_loops
+        ultranest_update_interval_volume_fraction = self.ultranest_update_interval_volume_fraction
+        ultranest_step_sampler = self.ultranest_step_sampler
+        ultranest_resume = self.ultranest_resume
+        ultranest_vectorized = self.ultranest_vectorized
+
+        if config.has_section('ULTRANEST'):
+            ultranest_min_num_live_points = _read_int_or_none(
+                'ULTRANEST', 'min_num_live_points', ultranest_min_num_live_points)
+            ultranest_nsteps = _read_int_or_none('ULTRANEST', 'nsteps', ultranest_nsteps)
+            ultranest_dlogz = _read_float_or_none('ULTRANEST', 'dlogz', ultranest_dlogz)
+            if config.has_option('ULTRANEST', 'min_ess'):
+                ultranest_min_ess = int(config['ULTRANEST']['min_ess'])
+            if config.has_option('ULTRANEST', 'max_num_improvement_loops'):
+                ultranest_max_num_improvement_loops = int(config['ULTRANEST']['max_num_improvement_loops'])
+            ultranest_update_interval_volume_fraction = _read_float_or_none(
+                'ULTRANEST', 'update_interval_volume_fraction', ultranest_update_interval_volume_fraction)
+            if config.has_option('ULTRANEST', 'step_sampler'):
+                ultranest_step_sampler = config['ULTRANEST']['step_sampler'].strip().lower()
+            if config.has_option('ULTRANEST', 'resume'):
+                ultranest_resume = config['ULTRANEST']['resume'].strip().lower()
+            if config.has_option('ULTRANEST', 'vectorized'):
+                ultranest_vectorized = config.getboolean('ULTRANEST', 'vectorized')
+
+        allowed_ultranest_step_samplers = ('auto', 'none', 'slice', 'population')
+        if ultranest_step_sampler not in allowed_ultranest_step_samplers:
+            raise Exception('config: ULTRANEST step_sampler not understood. Expected one of {}'.format(
+                allowed_ultranest_step_samplers))
+        allowed_ultranest_resume = ('overwrite', 'resume', 'subfolder')
+        if ultranest_resume not in allowed_ultranest_resume:
+            raise Exception('config: ULTRANEST resume not understood. Expected one of {}'.format(
+                allowed_ultranest_resume))
         ## ----------------------------------------------------
         ## SET UP ENVIRONMENT VARIABLES
         #
@@ -917,6 +991,16 @@ class SpectralAnalysis:
         self.set_parallel(parallel)
         self.set_ncores(nbCores) ## Number of cores to use for the MCMC
         self.set_savebackend(saveBackend) ## Number of cores to use for the MCMC
+        self.sampler_type = sampler
+        self.ultranest_min_num_live_points = ultranest_min_num_live_points
+        self.ultranest_nsteps = ultranest_nsteps
+        self.ultranest_dlogz = ultranest_dlogz
+        self.ultranest_min_ess = ultranest_min_ess
+        self.ultranest_max_num_improvement_loops = ultranest_max_num_improvement_loops
+        self.ultranest_update_interval_volume_fraction = ultranest_update_interval_volume_fraction
+        self.ultranest_step_sampler = ultranest_step_sampler
+        self.ultranest_resume = ultranest_resume
+        self.ultranest_vectorized = ultranest_vectorized
         #
         self.set_veilingBands(veilingBands) ## veiling factor
         self.set_veilingFac(veilingFac) ## veiling factor
@@ -3952,48 +4036,49 @@ class SpectralAnalysis:
         return maxkey, maxval
 
     def save_results(self, write=True):
-        '''Function to save the results of the MCMC'''
-        if self.sampler is not None:
-            if self.dynesty:
-                samples = np.array([self.sampler.results.samples])
-            else:
-                samples = self.sampler.get_chain()
-                log_prob_walkers_noflat_0 = self.sampler.get_log_prob()
+        '''Function to save the results of the sampler (emcee, dynesty, or UltraNest).'''
+        if hasattr(self, 'sampler_result') and self.sampler_result is not None:
+            sr = self.sampler_result
+
+            # Work on a copy to avoid mutating the SamplerResult
+            ssamples = sr.samples.copy()
+            log_prob_walkers = sr.log_likelihood.copy()
+            sample_weights = sr.weights.copy()
+
             if self.logCoeffs:
-                samples[:,:,:len(self.bs)-1] = np.exp(samples[:,:,:len(self.bs)-1])
-            np.save(self.opath+"samples", samples)
-            np.save(self.opath+"weights", samples)
+                ssamples[:, :len(self.bs)-1] = np.exp(ssamples[:, :len(self.bs)-1])
+
+            # Save samples.npy: for emcee, preserve the 3D raw chain shape
+            # (nsteps, nwalkers, ndim) that downstream scripts expect.
+            # For nested samplers, save the flat 2D samples (n_samples, ndim).
+            if sr.raw_chain is not None:
+                raw_to_save = sr.raw_chain.copy()
+                if self.logCoeffs:
+                    raw_to_save[:, :, :len(self.bs)-1] = np.exp(
+                        raw_to_save[:, :, :len(self.bs)-1])
+                np.save(self.opath+"samples", raw_to_save)
+            else:
+                np.save(self.opath+"samples", ssamples)
+            np.save(self.opath+"weights", ssamples)  # Legacy: duplicate of flat samples
 
             ## Sometimes we run into problems with latex. Let's check if latex is usable:
             if shutil.which('latex'): self.latex = False
 
-            ## Reasign        
-            samples_noflat_0 = samples
             data = {}
-            data['nsteps'] = len(samples_noflat_0)
-            data['burning'] = round(0.5*data['nsteps']) ## 50% by default
             data['bs'] = self.bs
 
-            #### REDISCARD - If user requested to discard the samples
-            ## Recompute the burning period
-            ## Take the samples after burning period
-            samples_noflat = samples_noflat_0[data['burning']:]
-            log_prob_walkers_noflat = log_prob_walkers_noflat_0[data['burning']:]
-
             #### Compute the number of fields in the fit
-            nbOfFields = len(self.bs) ## This is the number of fields in our model NOT WHAT WE FIT 
-            
-            #### Flatten the samples
-            ishape = np.shape(samples_noflat)
-            nshape = (ishape[0] * ishape[1], ishape[2])
-            ssamples = np.reshape(np.copy(samples_noflat), nshape) ## Those are the new flatten samples
-            log_prob_walkers = np.concatenate(log_prob_walkers_noflat, -1)
+            nbOfFields = len(self.bs)
 
-            ## This is taking the average of the 5% of the walkers
+            ## Weighted top-5% selection by log-likelihood
             percent = .05
-            nblim = int(round(percent*len(log_prob_walkers))) ## Thats 5%
-            thslikelihood = np.sort(log_prob_walkers)[-nblim]
-            idx50 = np.where(log_prob_walkers>=thslikelihood)
+            sorted_idx = np.argsort(log_prob_walkers)[::-1]  # highest first
+            cumulative_weight = np.cumsum(sample_weights[sorted_idx])
+            top_mask = cumulative_weight <= percent
+            # Ensure at least one sample is selected
+            if not np.any(top_mask):
+                top_mask[0] = True
+            idx50 = (sorted_idx[top_mask],)
             nbofvals2 = len(idx50[0])
 
             labels = self.return_labels()
@@ -4047,6 +4132,17 @@ class SpectralAnalysis:
             ###################################
 
             cornerfont = 25
+
+            # Compute weighted-quantile ranges so the corner plot zooms into
+            # the posterior mass instead of spanning the full prior volume.
+            from asap.sampler_utils import weighted_percentile
+            corner_ranges = []
+            for i in range(nssamples.shape[1]):
+                lo = weighted_percentile(nssamples[:, i], sample_weights, [0.1])[0]
+                hi = weighted_percentile(nssamples[:, i], sample_weights, [99.9])[0]
+                margin = 0.1 * (hi - lo)
+                corner_ranges.append((lo - margin, hi + margin))
+
             CORNER_KWARGS = dict(
                 smooth=0.5,
                 label_kwargs=dict(fontsize=cornerfont),
@@ -4057,18 +4153,19 @@ class SpectralAnalysis:
                 titles=["" for i in range(len(labels))],
                 # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
                 # plot_density=False,
-                # plot_datapoints=False,
+                plot_datapoints=False,
                 fill_contours=True,
                 show_titles=True,
                 max_n_ticks=3,
                 # title_fmt=".2E",
-                labels=labels
+                labels=labels,
+                range=corner_ranges,
             )
 
             plottrig = True
             if plottrig:
                 print("-> Generating full corner plot")
-                fig = corner.corner(nssamples, **CORNER_KWARGS)
+                fig = corner.corner(nssamples, weights=sample_weights, **CORNER_KWARGS)
 
                 ## Now we want to remove the equal sign from titles
                 for i in range(len(fig.axes)):
@@ -4114,28 +4211,32 @@ class SpectralAnalysis:
                 if self.fitFields:
                     _ndim = 1
                     _labels = ['<B> (kG)']
+                    lo = weighted_percentile(meanfield, sample_weights, [0.1])[0]
+                    hi = weighted_percentile(meanfield, sample_weights, [99.9])[0]
+                    margin = 0.1 * (hi - lo)
                     CORNER_KWARGS = dict(
                         smooth=0.5,
                         label_kwargs=dict(fontsize=18),
                         title_kwargs=dict(fontsize=18),
                         quantiles=[0.16, 0.5, 0.84],
                         # titles=["" for i in range(len(labels))],
-                        # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 
+                        # levels=(1 - np.exp(-0.5), 1 - np.exp(-2),
                         #         1 - np.exp(-9 / 2.)),
                         # plot_density=False,
-                        # plot_datapoints=False,
+                        plot_datapoints=False,
                         fill_contours=True,
                         show_titles=True,
                         max_n_ticks=3,
                         # title_fmt=".2E",
-                        labels=_labels
+                        labels=_labels,
+                        range=[(lo - margin, hi + margin)],
                     )
                     ## Make the ticks bigger
                     for ax in fig.get_axes():
                         ax.tick_params(axis='both', labelsize=16)
                         ax.title.set_fontsize("16")
                     ## Corner plots
-                    fig = corner.corner(meanfield,**CORNER_KWARGS)
+                    fig = corner.corner(meanfield, weights=sample_weights, **CORNER_KWARGS)
                     # Extract the axes
                     axes = np.array(fig.axes).reshape((_ndim, _ndim))
                     ## Compute max likelihood
@@ -4163,7 +4264,7 @@ class SpectralAnalysis:
 
                     # subssamples = nssamples.T[1:nbOfFields]
                     # meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
-                    mcmc_meanfield = np.percentile(meanfield, [16, 50, 84])
+                    mcmc_meanfield = weighted_percentile(meanfield, sample_weights, [16, 50, 84])
                     q_meanfield = np.diff(mcmc_meanfield)
                     meanfield_tradi = mcmc_meanfield[1]
                     emeanfield_tradi = np.mean(q_meanfield)
@@ -4191,6 +4292,14 @@ class SpectralAnalysis:
                 if self.fitFields:
                     _labels = ['<B> (kG)', r"$a_0$"]
                     _ndim = len(_labels)
+                    non_mag = nssamples.T[0]
+                    nonmag_meanfield = np.array([meanfield, non_mag])
+                    a0b_ranges = []
+                    for col in nonmag_meanfield:
+                        lo = weighted_percentile(col, sample_weights, [0.1])[0]
+                        hi = weighted_percentile(col, sample_weights, [99.9])[0]
+                        margin = 0.1 * (hi - lo)
+                        a0b_ranges.append((lo - margin, hi + margin))
                     CORNER_KWARGS = dict(
                         smooth=0.5,
                         label_kwargs=dict(fontsize=18),
@@ -4199,12 +4308,13 @@ class SpectralAnalysis:
                         titles=["" for i in range(len(labels))],
                         # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
                         # plot_density=False,
-                        # plot_datapoints=False,
+                        plot_datapoints=True,
                         fill_contours=True,
                         show_titles=True,
                         max_n_ticks=3,
                         # title_fmt=".2E",
-                        labels=_labels
+                        labels=_labels,
+                        range=a0b_ranges,
                     )
 
                     ## Make the ticks bigger
@@ -4212,9 +4322,7 @@ class SpectralAnalysis:
                         ax.tick_params(axis='both', labelsize=16)
                         ax.title.set_fontsize("16")
                     ## Corner plots
-                    non_mag = nssamples.T[0]
-                    nonmag_meanfield = np.array([meanfield, non_mag])
-                    fig = corner.corner(nonmag_meanfield.T,**CORNER_KWARGS)
+                    fig = corner.corner(nonmag_meanfield.T, weights=sample_weights, **CORNER_KWARGS)
                     # print('If I am right this is the mean field: {} '.format(np.median(nonmag_meanfield[1])))
                     # print('And so this is the max field: {} '.format(np.max(nonmag_meanfield[1])))
                     idx = np.where(log_prob_walkers==np.max(log_prob_walkers))
@@ -4275,7 +4383,7 @@ class SpectralAnalysis:
             max = np.mean(max50, axis=0)
             for i in range(len(nssamples[0])):
                 ## Compute the median and error bars "traditionally"
-                mcmc = np.percentile(nssamples[:, i], [16, 50, 84])
+                mcmc = weighted_percentile(nssamples[:, i], sample_weights, [16, 50, 84])
                 q = np.diff(mcmc)
                 # 1 - get the maximum of the distributions
                 roundfac = -1*magnitude(np.mean(q))
@@ -4332,7 +4440,7 @@ class SpectralAnalysis:
             if (self.fitFields and (nbOfFields>1)):
                 subssamples = nssamples.T[1:nbOfFields] ## Without the 0kG component
                 meanfield_ssamples = np.sum(subssamples.T * self.bs[1:], axis=1)
-                mcmc_meanfield = np.percentile(meanfield_ssamples, [16, 50, 84])
+                mcmc_meanfield = weighted_percentile(meanfield_ssamples, sample_weights, [16, 50, 84])
                 q_meanfield = np.diff(mcmc_meanfield)
                 meanfield_tradi = mcmc_meanfield[1]
                 emeanfield_tradi = np.mean(q_meanfield)
@@ -4405,8 +4513,8 @@ class SpectralAnalysis:
             ##########################
             #### PLOT 4 - samples ####
             ##########################
-            ## I did not reconstruct the zero-magnetic field for the non-flattened samples.
-            ## So IF we fit the fields, we need to remove the first one.
+            ## Walker trace plots are only meaningful for emcee (MCMC chains).
+            ## For nested samplers, we skip these plots.
             if self.fitFields:
                 _ndim = data['ndim']-1
                 _labels = labels[1:]
@@ -4414,56 +4522,66 @@ class SpectralAnalysis:
                 _ndim = data['ndim']
                 _labels = labels
 
-            figheightfac = len(_labels)/2 # Used to enlarge the figures
-            # ----
-            ## Without burning
-            if plottrig:
-                print("-> Generating samples plots")
-                fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-                if _ndim == 1:
-                    i = 0
-                    ax = axes
-                    ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat_0))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                    ax.set_xlabel("step number");
-                else:
-                    for i in range(_ndim):
-                        ax = axes[i]
+            figheightfac = len(_labels)/2
+
+            if sr.raw_chain is not None:
+                # emcee: plot walker traces
+                samples_noflat_0 = sr.raw_chain
+                if self.logCoeffs:
+                    samples_noflat_0 = samples_noflat_0.copy()
+                    samples_noflat_0[:, :, :len(self.bs)-1] = np.exp(
+                        samples_noflat_0[:, :, :len(self.bs)-1])
+
+                burn = sr.metadata.get('burn', round(0.5 * len(samples_noflat_0))) # Default to 50% burn-in if not specified
+                samples_noflat = samples_noflat_0[burn:]
+
+                if plottrig:
+                    print("-> Generating samples plots")
+                    fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+                    if _ndim == 1:
+                        i = 0
+                        ax = axes
                         ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
                         ax.set_xlim(0, len(samples_noflat_0))
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
-                    axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples.pdf')
-                # plt.show()
-                plt.close()
-                data['gen_files'].append('samples.pdf')
+                        ax.set_xlabel("step number");
+                    else:
+                        for i in range(_ndim):
+                            ax = axes[i]
+                            ax.plot(samples_noflat_0[:, :, i], "k", alpha=0.3)
+                            ax.set_xlim(0, len(samples_noflat_0))
+                            ax.set_ylabel(_labels[i])
+                            ax.yaxis.set_label_coords(-0.1, 0.5)
+                        axes[-1].set_xlabel("step number");
+                    plt.savefig(self.opath+'samples.pdf')
+                    plt.close()
+                    data['gen_files'].append('samples.pdf')
 
-            ## With burning
-            if plottrig:
-                fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
-                if _ndim == 1:
-                    i = 0
-                    ax = axes
-                    ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
-                    ax.set_xlim(0, len(samples_noflat[:]))
-                    ax.set_ylabel(_labels[i])
-                    ax.yaxis.set_label_coords(-0.1, 0.5)
-                    ax.set_xlabel("step number");
-                else:
-                    for i in range(_ndim):
-                        ax = axes[i]
+                if plottrig:
+                    fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
+                    if _ndim == 1:
+                        i = 0
+                        ax = axes
                         ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
                         ax.set_xlim(0, len(samples_noflat[:]))
                         ax.set_ylabel(_labels[i])
                         ax.yaxis.set_label_coords(-0.1, 0.5)
-                    axes[-1].set_xlabel("step number");
-                plt.savefig(self.opath+'samples_postburn.pdf')
-                # plt.show()
-                plt.close()
-                data['gen_files'].append('samples_postburn.pdf')
+                        ax.set_xlabel("step number");
+                    else:
+                        for i in range(_ndim):
+                            ax = axes[i]
+                            ax.plot(samples_noflat[:, :, i], "k", alpha=0.3)
+                            ax.set_xlim(0, len(samples_noflat[:]))
+                            ax.set_ylabel(_labels[i])
+                            ax.yaxis.set_label_coords(-0.1, 0.5)
+                        axes[-1].set_xlabel("step number");
+                    plt.savefig(self.opath+'samples_postburn.pdf')
+                    plt.close()
+                    data['gen_files'].append('samples_postburn.pdf')
+            else:
+                # Nested samplers: no walker traces to plot
+                print("-> Skipping walker trace plots (not applicable for nested sampling)")
 
             resdict = self.get_PARAMS(mcmcs, emcmcs)
 
@@ -4658,6 +4776,9 @@ class SpectralAnalysis:
                         'int:nb_points',
                         'cst:norm_factor',
                         'cst:bic',
+                        'str:logz',
+                        'str:logz_err',
+                        'str:sampler_type',
                         'sep:-',
                         'str:input_instrument',
                         'str:input_fitRV',
@@ -4685,6 +4806,16 @@ class SpectralAnalysis:
                         'int:input_nbSteps',
                         'int:input_nbCores',
                         'str:input_saveBackend',
+                        'str:input_sampler',
+                        'str:input_ultranest_min_num_live_points',
+                        'str:input_ultranest_nsteps',
+                        'str:input_ultranest_dlogz',
+                        'str:input_ultranest_min_ess',
+                        'str:input_ultranest_max_num_improvement_loops',
+                        'str:input_ultranest_update_interval_volume_fraction',
+                        'str:input_ultranest_step_sampler',
+                        'str:input_ultranest_resume',
+                        'str:input_ultranest_vectorized',
                         'sep:-',
                         'str:input_pathToGrid',
                         'str:input_pathToData',
@@ -4744,6 +4875,15 @@ class SpectralAnalysis:
         resdict['star'] = self.star
         resdict['lnlike_max'] = maxLnLikelihood
         resdict['bic'] = bic
+        if hasattr(self, 'sampler_result') and self.sampler_result is not None:
+            sr = self.sampler_result
+            resdict['logz'] = '{:.4f}'.format(sr.evidence) if sr.evidence is not None else 'N/A'
+            resdict['logz_err'] = '{:.4f}'.format(sr.evidence_err) if sr.evidence_err is not None else 'N/A'
+            resdict['sampler_type'] = sr.sampler_type
+        else:
+            resdict['logz'] = 'N/A'
+            resdict['logz_err'] = 'N/A'
+            resdict['sampler_type'] = 'unknown'
         #
         resdict['input_filename'] = self.input_filename
         ## And also some of the user inputs directly
@@ -4773,6 +4913,17 @@ class SpectralAnalysis:
         resdict['input_nbSteps'] = self.nsteps
         resdict['input_nbCores'] = self.ncores
         resdict['input_saveBackend'] = self.savebackend
+        resdict['input_sampler'] = self.sampler_type
+        resdict['input_ultranest_min_num_live_points'] = str(self.ultranest_min_num_live_points)
+        resdict['input_ultranest_nsteps'] = str(self.ultranest_nsteps)
+        resdict['input_ultranest_dlogz'] = str(self.ultranest_dlogz)
+        resdict['input_ultranest_min_ess'] = str(self.ultranest_min_ess)
+        resdict['input_ultranest_max_num_improvement_loops'] = str(self.ultranest_max_num_improvement_loops)
+        resdict['input_ultranest_update_interval_volume_fraction'] = str(
+            self.ultranest_update_interval_volume_fraction)
+        resdict['input_ultranest_step_sampler'] = str(self.ultranest_step_sampler)
+        resdict['input_ultranest_resume'] = str(self.ultranest_resume)
+        resdict['input_ultranest_vectorized'] = str(self.ultranest_vectorized)
         resdict['input_pathToGrid'] = self.pathtogrid
         resdict['input_pathToData'] = self.pathtodata
         resdict['input_lineListFile'] = self.linelist
@@ -4938,7 +5089,7 @@ class SpectralAnalysis:
                 titles=["" for i in range(len(labels))],
                 # levels=(1 - np.exp(-0.5), 1 - np.exp(-2), 1 - np.exp(-9 / 2.)),
                 # plot_density=False,
-                # plot_datapoints=False,
+                plot_datapoints=True,
                 fill_contours=True,
                 show_titles=True,
                 max_n_ticks=3,

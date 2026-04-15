@@ -8,12 +8,19 @@ from asap.spectral_analysis_pack import broaden_spectra
 import sys
 import os
 import argparse ## To read optional arguments
+import configparser
 from asap import io_tools
 # from schwimmbad import MPIPool
 
 from dynesty import NestedSampler, DynamicNestedSampler
 from dynesty import plotting as dyplot
 import ultranest
+import time
+import multiprocessing
+from multiprocessing import Pool
+from multiprocessing import get_context
+import emcee
+from asap.sampler_utils import extract_emcee, extract_dynesty, extract_ultranest
 
 
 parser = argparse.ArgumentParser()
@@ -26,16 +33,70 @@ parser.add_argument("-i", "--interactive", action='store_true',
 parser.add_argument("-c", "--nbofcores", type=int, default=None)
 parser.add_argument("-m", "--mpi", type=bool, default=False)
 parser.add_argument("-p", "--profile", type=bool, default=False)
-parser.add_argument("-d", "--dynesty", type=bool, default=False)
-parser.add_argument("-u", "--run_ultranest", action='store_true', default=False)
+parser.add_argument("-d", "--dynesty", action='store_true', default=False,
+                    help='Use dynesty nested sampling instead of emcee')
+parser.add_argument("-u", "--run_ultranest", action='store_true', default=False,
+                    help='Use UltraNest reactive nested sampling instead of emcee')
+parser.add_argument("--nlive", type=int, default=None,
+                    help='Override live points for nested sampling (config-first when omitted).')
+parser.add_argument("--nsteps", type=int, default=None,
+                    help='Override step-sampler nsteps for UltraNest (config-first when omitted).')
 parser.add_argument("--magfields", nargs='+', type=float, default=None,
                     help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
 parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
                     help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
 
 args = parser.parse_args()
-# ncores = args.nbofcores
-dynesty = args.dynesty
+# plotfit = args.plotfit
+locpath = os.getcwd()
+config_file = locpath + '/config.ini'
+
+
+def resolve_sampler_type(cli_args, config_path):
+    """Resolve sampler with precedence: CLI flags > config.ini > default."""
+    if cli_args.run_ultranest:
+        return "ultranest"
+    if cli_args.dynesty:
+        return "dynesty"
+
+    if not os.path.isfile(config_path):
+        return "emcee"
+
+    cfg = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
+    cfg.read(config_path)
+    if not cfg.has_option('MAIN', 'sampler'):
+        return "emcee"
+
+    sampler_from_config = cfg['MAIN']['sampler'].strip().lower()
+    allowed_samplers = ('emcee', 'dynesty', 'ultranest')
+    if sampler_from_config not in allowed_samplers:
+        raise ValueError(
+            "Invalid [MAIN] sampler='{}'. Expected one of {}.".format(
+                sampler_from_config, allowed_samplers)
+        )
+    return sampler_from_config
+
+
+# Determine sampler type from CLI/config.
+sampler_type = resolve_sampler_type(args, config_file)
+# Keep dynesty default behavior unchanged if no explicit live-point override is set.
+nlive = args.nlive if args.nlive is not None else 400
+
+# ---------------------------------------------------------------------------
+# Early MPI detection — needed before any file I/O so that only rank 0
+# creates directories, copies config files, etc.  Worker ranks wait at
+# a barrier and then read the config that rank 0 wrote.
+# ---------------------------------------------------------------------------
+mpi_size = 1
+mpi_rank = 0
+if sampler_type == "ultranest":
+    try:
+        from mpi4py import MPI
+        mpi_size = MPI.COMM_WORLD.Get_size()
+        mpi_rank = MPI.COMM_WORLD.Get_rank()
+    except ImportError:
+        pass
+
 if args.star is not None:
     star = args.star.strip()
     if star[-5:] == '.fits':
@@ -45,16 +106,12 @@ else:
 folderid = args.folderid
 mpi = args.mpi
 profile = args.profile
-run_ultranest = args.run_ultranest
 
 # from IPython import embed
 # embed()
 
 #
 # import config as config
-
-locpath = os.getcwd()
-config_file = locpath + '/config.ini'
 infile = None
 
 if star is None:
@@ -94,14 +151,26 @@ if '/' in star:
 else:
     _star = star
 opath = 'output_{}{}/'.format(_star, folderid)
-if not os.path.isdir(opath): os.mkdir(opath)
-## Make a READ ONLY copy of the config file in the output folder
+ultranest_logdir = os.path.join(opath, 'ultranest_logdir')
 config_file_copy = opath+"config_copy.ini"
-if os.path.isfile(config_file_copy):
-    print('Caution, overwriting previous run config.ini')
-    os.system("rm -f {}".format(config_file_copy)) ## Make the copy read only. This will help prevent future mistakes (e.g. oups, I modified the wrong file)
-os.system("cp {} {}".format(config_file, config_file_copy))
-os.chmod(config_file_copy, 0o444) ## Make the copy read only. This will help prevent future mistakes (e.g. oups, I modified the wrong file)
+
+# Only rank 0 creates the output directory and copies the config file.
+# Under MPI every rank runs this script; without the guard the mkdir and
+# file-copy race against each other and crash.
+if mpi_rank == 0:
+    os.makedirs(opath, exist_ok=True)
+    if sampler_type == "ultranest":
+        # Always keep UltraNest logs inside the retrieval output folder.
+        os.makedirs(ultranest_logdir, exist_ok=True)
+    if os.path.isfile(config_file_copy):
+        print('Caution, overwriting previous run config.ini')
+        os.system("rm -f {}".format(config_file_copy))
+    os.system("cp {} {}".format(config_file, config_file_copy))
+    os.chmod(config_file_copy, 0o444)
+
+# Worker ranks wait until rank 0 has written the config copy.
+if mpi_size > 1:
+    MPI.COMM_WORLD.Barrier()
 
 SA = SpectralAnalysis()
 SA.set_opath(opath)
@@ -111,7 +180,6 @@ SA.read_config(config_file_copy)
 
 ## Override magFields and/or fillFactors from CLI if provided
 if args.magfields is not None or args.fillfactors is not None:
-    import configparser as configparser
     ## Validate consistency between magfields and fillfactors
     n_bs = len(args.magfields) if args.magfields is not None else len(SA.bs)
     n_ff = len(args.fillfactors) if args.fillfactors is not None else len(SA.fillFactors)
@@ -120,35 +188,58 @@ if args.magfields is not None or args.fillfactors is not None:
             f'Mismatch: {n_bs} magnetic field component(s) but {n_ff} filling factor(s). '
             f'These must have the same length.'
         )
-    ## Temporarily make config copy writable to record CLI overrides
-    os.chmod(config_file_copy, 0o644)
-    _cfg = configparser.ConfigParser()
-    _cfg.read(config_file_copy)
+    ## Update the in-memory SA object on ALL ranks
     if args.magfields is not None:
         SA.update_bs(np.array(args.magfields))
-        _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
-        print(f'CLI override: magFields set to {args.magfields}')
+        if mpi_rank == 0:
+            print(f'CLI override: magFields set to {args.magfields}')
     if args.fillfactors is not None:
         SA.update_fillFactors(np.array(args.fillfactors))
-        _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
-        print(f'CLI override: fillFactors set to {args.fillfactors}')
-    ## Rebuild PARAMS_FIT now that bs and coeffs are final
+        if mpi_rank == 0:
+            print(f'CLI override: fillFactors set to {args.fillfactors}')
     SA.init_PARAMS()
-    with open(config_file_copy, 'w') as _f:
-        _cfg.write(_f)
-    os.chmod(config_file_copy, 0o444)  ## Restore read-only
 
-print('dynesty: {}'.format(dynesty))
-print(SA.dynesty)
-SA.set_dynesty(dynesty)
-print(SA.dynesty)
-print('CONFIG READ')
+## Keep config copy in sync with CLI overrides for reproducibility
+if mpi_rank == 0:
+    should_update_config_copy = (
+        args.magfields is not None
+        or args.fillfactors is not None
+        or args.nlive is not None
+        or args.nsteps is not None
+        or args.run_ultranest
+        or args.dynesty
+    )
+    if should_update_config_copy:
+        os.chmod(config_file_copy, 0o644)
+        _cfg = configparser.ConfigParser()
+        _cfg.read(config_file_copy)
+        if not _cfg.has_section('MAIN'):
+            _cfg.add_section('MAIN')
+        if args.magfields is not None:
+            _cfg['MAIN']['magFields'] = ' '.join(str(v) for v in args.magfields)
+        if args.fillfactors is not None:
+            _cfg['MAIN']['fillFactors'] = ' '.join(str(v) for v in args.fillfactors)
+        _cfg['MAIN']['sampler'] = sampler_type
+
+        if not _cfg.has_section('ULTRANEST'):
+            _cfg.add_section('ULTRANEST')
+        if args.nlive is not None:
+            _cfg['ULTRANEST']['min_num_live_points'] = str(args.nlive)
+        if args.nsteps is not None:
+            _cfg['ULTRANEST']['nsteps'] = str(args.nsteps)
+
+        with open(config_file_copy, 'w') as _f:
+            _cfg.write(_f)
+        os.chmod(config_file_copy, 0o444)
+
+if mpi_rank == 0:
+    print('Sampler type: {}'.format(sampler_type))
+SA.sampler_type = sampler_type
+if mpi_rank == 0:
+    print('CONFIG READ')
 
 ## Update the sampling method in the object to keep track of it
-if dynesty: sampler='DYNESTY'
-elif run_ultranest: sampler='ULTRANEST'
-else: sampler='EMCEE'
-SA.set_samplerType(sampler)
+SA.set_samplerType(sampler_type.upper())
 
 labels = SA.return_labels()
 
@@ -389,8 +480,8 @@ def define_ranges():
         ranges.append((0, 300))
         i+=1
     if SA.fitmac:
-        ranges.append((0, 300))
-        i+=1        
+        ranges.append((0, 10))
+        i+=1
     if SA.fitVeiling:
         for j in range(SA.nbFitVeil):
             ranges.append((0, 10))
@@ -470,149 +561,253 @@ def prior_transform(u):
     for i in range(idxStart, len(ranges)):
         theta[i] = ranges[i][0] + u[i] * (ranges[i][1] - ranges[i][0])
 
-    # N magnetic components
-    # x = u[:idxStart]          # exponential variables
-    x = -np.log(u[:idxStart])          # exponential variables
-    s = np.sum(x)
-    theta[:idxStart] = x / s              # sum = 1
-    theta[:idxStart] *= u[:idxStart]
-
-    # theta[:idxStart] = u[:idxStart] / (1-np.sum(u[:idxStart])) ## Ensures the sum of ALL coeffs. 
+    # Magnetic filling factors: symmetric Dirichlet(1,...,1) prior over ALL
+    # nbOfFields components (including the zero-field component, which is
+    # derived as 1 - sum(free)).  Only u[:idxStart] are consumed here;
+    # u[idxStart] onward belong to the atmospheric/broadening parameters.
+    #
+    # We draw (idxStart+1) Gamma(1,1) variates from only idxStart cube dims
+    # by using a fixed variate (1.0 = the mean of Exp(1)) for the zero-field
+    # component.  This gives a symmetric Dirichlet draw that sums to 1.
+    if idxStart > 0:
+        gamma_free = -np.log(np.clip(u[:idxStart], 1e-300, None))  # Exp(1) variates
+        gamma_zero = 1.0  # fixed variate for the zero-field component
+        gamma_sum = gamma_free.sum() + gamma_zero
+        theta[:idxStart] = gamma_free / gamma_sum   # free fractions; zero-field = gamma_zero / gamma_sum
 
     return theta
 
 SA.return_warning_nanlikelidhood = False
 def lnprob(par):
-    if dynesty:
+    # For nested samplers the prior is encoded in prior_transform;
+    # lnprior is only needed by emcee.
+    if sampler_type not in ("dynesty", "ultranest"):
         lp = SA.lnprior(par)
+        if not np.isfinite(lp):
+            return -np.inf
     else:
         lp = 0
-    return lp + SA.lnlike(par)
+    try:
+        like = SA.lnlike(par)
+    except ValueError as e:
+        if "could not broadcast" in str(e) or "Shape mismatch" in str(e):
+            if SA.debugMode:
+                print(f"\n[WARNING] Array shape mismatch (likely valid during ultranest init):")
+                print(f"Parameters: {SA.PARAMS_FIT}")
+                print(f"Values: {par}")
+                print(f"Error: {e}")
+            # Use finite penalty for nested samplers (-inf creates plateaus
+            # UltraNest cannot traverse); emcee expects -inf for rejection.
+            return -1e100 if sampler_type in ("dynesty", "ultranest") else -np.inf
+        else:
+            raise
+    if not np.isfinite(like):
+        return -1e100 if sampler_type in ("dynesty", "ultranest") else -np.inf
+    return lp + like
 #
 ndim = SA.ndim ## To avoid class call in MCMC
+
+# Vectorized wrappers for UltraNest's vectorized=True mode.
+# These receive (N, ndim) arrays and return (N,) / (N, ndim) arrays.
+def lnprob_vectorized(params_batch):
+    return np.array([lnprob(par) for par in params_batch])
+
+def prior_transform_vectorized(u_batch):
+    return np.array([prior_transform(u) for u in u_batch])
 
 
 #####################################
 #### ---- RUN MCMC ANALYSIS ---- ####
 #####################################
 
-import time
-import multiprocessing
-from multiprocessing import Pool
-from multiprocessing import get_context
-import emcee
-import os
-
 os.environ["OMP_NUM_THREADS"] = "1"
-#multiprocessing.set_start_method("fork")
 
-# Set up the backend
-# Don't forget to clear it in case the file already exists
-if SA.savebackend:
-    # !! If the file exists, we may want to continue and not reset
+# MPI detection was moved earlier (after argparse) so that file I/O
+# in the initialisation phase can be guarded by rank == 0.
+if mpi_size > 1:
+    print(f'MPI detected: rank {mpi_rank} of {mpi_size}')
+
+# Set up the emcee backend (only needed for emcee)
+CONTINUE_BACKEND = False
+backend = None
+if sampler_type == "emcee" and SA.savebackend:
     filename = opath + "backend.h5"
     backend = emcee.backends.HDFBackend(filename)
     if os.path.isfile(filename):
         print('!!! By default, I continue the chain (no backend reset)')
         CONTINUE_BACKEND = True
-        nwalkers = backend.shape[0] ## The number of walkers is that which was was set in the previous run
-        # weights = None
+        nwalkers = backend.shape[0]
     else:
-        CONTINUE_BACKEND = False ## Cannot continue because no file found
-        backend.reset(nwalkers, ndim) ## This resets the file
-else:
-    CONTINUE_BACKEND = False ## We are not saving the backend, and therefore not continuing
-    backend=None
+        CONTINUE_BACKEND = False
+        backend.reset(nwalkers, ndim)
 
-# import corner
-if SA.parallel:
+# ---------------------------------------------------------------------------
+# UltraNest parallelisation guide:
+#
+#   UltraNest does NOT use Python multiprocessing pools.  Instead it relies
+#   on MPI for distributing likelihood evaluations across cores/nodes.
+#
+#   Single-core run:
+#       python -m asap <star> -u
+#
+#   Multi-core run (MPI, recommended):
+#       mpiexec -n <ncores> python -m asap <star> -u
+#
+#   Make sure OMP_NUM_THREADS=1 (set above) to prevent numpy/BLAS from
+#   spawning threads that compete with MPI ranks.
+#
+#   Do NOT combine --parallel / multiprocessing with UltraNest MPI; they are
+#   mutually exclusive parallelisation strategies.
+# ---------------------------------------------------------------------------
+
+# Decide whether to use a multiprocessing pool.
+# UltraNest handles its own parallelism via MPI, so skip the pool for it.
+use_pool = SA.parallel and sampler_type not in ("ultranest",) and mpi_size == 1
+
+if sampler_type == "ultranest":
+    # --- UltraNest path (no multiprocessing pool) ---
+    if args.nlive is not None:
+        nlive = args.nlive
+    elif SA.ultranest_min_num_live_points is not None:
+        nlive = SA.ultranest_min_num_live_points
+    else:
+        nlive = 400
+
+    nsteps_slice = args.nsteps if args.nsteps is not None else SA.ultranest_nsteps
+    dlogz = SA.ultranest_dlogz
+    if dlogz is None:
+        dlogz = 0.5 + 0.1 * ndim
+    update_interval_volume_fraction = SA.ultranest_update_interval_volume_fraction
+    if update_interval_volume_fraction is None:
+        update_interval_volume_fraction = 0.4 if ndim > 20 else 0.2
+
+    print("Launching UltraNest (ndim={})".format(ndim))
+    if mpi_size > 1:
+        print(f"  MPI parallelisation active: {mpi_size} ranks")
+    else:
+        print("  Running single-core. For parallel execution use:")
+        print("    mpiexec -n {} python -m asap {} -u --nlive {}".format(
+            ncores, star, nlive))
+    print("  UltraNest settings: nlive={}, dlogz={}, min_ess={}, resume={}, vectorized={}".format(
+        nlive, dlogz, SA.ultranest_min_ess, SA.ultranest_resume, SA.ultranest_vectorized))
+    print(f"  UltraNest logs: {ultranest_logdir}")
+
+    resume_policy = SA.ultranest_resume
+    sampler = ultranest.ReactiveNestedSampler(
+        labels, lnprob_vectorized, prior_transform_vectorized,
+        log_dir=ultranest_logdir,
+        resume=resume_policy,
+        vectorized=SA.ultranest_vectorized,
+    )
+
+    # Configure optional step sampler using config-first settings.
+    step_sampler_mode = SA.ultranest_step_sampler
+    if step_sampler_mode == 'auto':
+        enable_step_sampler = (nsteps_slice is not None) or (ndim > 10)
+        requested_step_sampler = 'population' if mpi_size > 1 else 'slice'
+    else:
+        enable_step_sampler = step_sampler_mode != 'none'
+        requested_step_sampler = step_sampler_mode
+
+    if enable_step_sampler:
+        if nsteps_slice is None:
+            nsteps_slice = 2 * ndim
+
+        if requested_step_sampler == 'population' and mpi_size > 1:
+            import ultranest.popstepsampler
+            popsize = mpi_size
+            print(f"  Using PopulationSliceSampler (popsize={popsize}, nsteps={nsteps_slice})")
+            sampler.stepsampler = ultranest.popstepsampler.PopulationSliceSampler(
+                popsize=popsize,
+                nsteps=nsteps_slice,
+                generate_direction=ultranest.popstepsampler.generate_region_oriented_direction,
+            )
+        else:
+            import ultranest.stepsampler
+            if requested_step_sampler == 'population' and mpi_size == 1:
+                print("  Requested population step sampler without MPI; falling back to SliceSampler")
+            print(f"  Using SliceSampler step sampler (nsteps={nsteps_slice})")
+            sampler.stepsampler = ultranest.stepsampler.SliceSampler(
+                nsteps=nsteps_slice,
+                generate_direction=ultranest.stepsampler.generate_region_oriented_direction,
+            )
+
+    itime = time.time()
+    result_raw = sampler.run(
+        min_num_live_points=nlive,
+        dlogz=dlogz,
+        min_ess=SA.ultranest_min_ess,
+        max_num_improvement_loops=SA.ultranest_max_num_improvement_loops,
+        update_interval_volume_fraction=update_interval_volume_fraction,
+    )
+    etime = time.time()
+
+    # Worker ranks must exit after UltraNest completes — only rank 0
+    # should do post-processing (saving results, plotting, etc.).
+    # Without this guard every MPI rank writes to the same output files,
+    # causing race conditions and potential file corruption.
+    if mpi_size > 1 and mpi_rank != 0:
+        MPI.Finalize()
+        sys.exit(0)
+
+elif use_pool:
     print(f'Running in parallel mode with ncores={ncores}')
-    
-    if sys.platform == "darwin": ## This should be a mac
+
+    if sys.platform == "darwin":
         print('OS detected: MacOS')
         __p = get_context("fork").Pool(ncores)
-    # elif mpi:
-    #     __p = MPIPool(ncores)
     else:
         __p = Pool(ncores)
 
     with __p as pool:
-        # if mpi:
-        #     if not pool.is_master():
-        #         pool.wait()
-        #         sys.exit(0)
-        if run_ultranest:
+        # --- Phase 1: Create sampler ---
+        if sampler_type == "dynesty":
             print("Launching dynesty in Parallel")
-            sampler = ultranest.ReactiveNestedSampler(labels, lnprob, prior_transform)   
-        elif dynesty:
-            print("Launching ultranest in Parallel")
-            sampler = NestedSampler(lnprob, prior_transform, ndim, pool=pool, queue_size=ncores, nlive=nsteps)
+            sampler = NestedSampler(
+                lnprob, prior_transform, ndim,
+                pool=pool, queue_size=ncores, nlive=nlive,
+            )
         else:
             print("Launching emcee in Parallel")
-            sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,
-                                            pool=pool, 
-                                            backend=backend) ## to save to file
-        itime = time.time()
-        if dynesty:
-            sampler.run_nested()
-            # res = sampler.results
-            # from dynesty.utils import quantile as dyn_quantile
-            # q = (0.025, 0.5, 0.975)
-            # values = []
-            # for i in range(res.samples.shape[1]):
-            #     values.append(dyn_quantile(res.samples[:,i], q, weights=res.importance_weights()))
-            # values = np.array(values)
-            # max_likelihood_idx = np.argmax(res.logl)
-            # best_fit_params = res.samples[max_likelihood_idx]
-            # fig, axes = dyplot.cornerplot(res, show_titles=True,
-            #                               truths=best_fit_params,
-            #                             #   truth_color='black', ## Adds lines on the plots
-            #                               )
-            # fig.savefig(opath+"cornerplotnosmooth.png")
-            # samples = res.samples
-            # from IPython import embed
-            # embed()
-        elif run_ultranest:
-            sampler.run(
-                        min_num_live_points=50,   # small (default is much larger)
-                        dlogz=100,                 # very loose stopping
-                        max_num_improvement_loops=1,
-                        max_ncalls=1000 ## For debugging
+            sampler = emcee.EnsembleSampler(
+                nwalkers, ndim, lnprob,
+                pool=pool, backend=backend,
             )
+
+        # --- Phase 2: Run sampler ---
+        itime = time.time()
+        if sampler_type == "dynesty":
+            sampler.run_nested()
         else:
             if CONTINUE_BACKEND:
                 sampler.run_mcmc(None, nsteps, progress=True)
             else:
                 sampler.run_mcmc(weights, nsteps, progress=True)
-                # import cProfile
-                # cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort='cumtime')
         etime = time.time()
+
 else:
     print('Running in non parallel mode')
-    if dynesty:
-        sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nsteps)
-    elif ultranest:
-        sampler = ultranest.ReactiveNestedSampler(labels, lnprob, 
-                                                  prior_transform)
+
+    # --- Phase 1: Create sampler ---
+    if sampler_type == "dynesty":
+        sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nlive)
     else:
-        sampler = emcee.EnsembleSampler(nwalkers, ndim, lnprob,
-                                        backend=backend) ## to save to file
+        sampler = emcee.EnsembleSampler(
+            nwalkers, ndim, lnprob, backend=backend,
+        )
+
+    # --- Phase 2: Run sampler ---
     itime = time.time()
-    if profile:
+    if profile and sampler_type == "emcee":
         import cProfile
-        cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort=True)
+        if CONTINUE_BACKEND:
+            cProfile.run('sampler.run_mcmc(None, nsteps, progress=True)', sort=True)
+        else:
+            cProfile.run('sampler.run_mcmc(weights, nsteps, progress=True)', sort=True)
     else:
-        if dynesty:
+        if sampler_type == "dynesty":
             print("Launching dynesty")
             sampler.run_nested()
-        elif run_ultranest:
-            print("Launching ultranest")
-            results = sampler.run(    
-                        min_num_live_points=50,   # small (default is much larger)
-                        dlogz=10,                 # very loose stopping
-                        max_num_improvement_loops=1,
-                        max_ncalls=1000 ## For debugging
-                        )
         else:
             print("Launching emcee")
             if CONTINUE_BACKEND:
@@ -620,39 +815,45 @@ else:
             else:
                 sampler.run_mcmc(weights, nsteps, progress=True)
     etime = time.time()
-# Save to output
+
+# --- Phase 3: Extract results ---
 print("Time = {:.2f} seconds".format(etime - itime))
-from IPython import embed;embed()
-## I save the time to the SA object, because I want this to be stored in the
-## same file
 SA.runTime = etime - itime
 f = open(opath+'time.txt', 'w')
 f.write("Initial guess: " + str(initial) + " \n")
 f.write("Time = {:.2f} seconds\n".format(etime - itime))
 f.close()
 
-if run_ultranest:
-    logz = results["logz"]
-    logl = [lnprob(theta) for theta in results["samples"]]
-    log_prob_walkers_noflat = np.array([logl])
-    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
-elif dynesty:
-    res = sampler.results
-    log_prob_walkers_noflat = np.array([res.logl])
-    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
-    ## If dynesty, pickle the results object so that we can later load it
-    ## and make the plot with dynesty.plotting.corerplot. 
+if sampler_type == "ultranest":
+    sampler_result = extract_ultranest(result_raw)
     import pickle
-    with open(opath+'dynesty_results.pkl', 'wb') as outp:
-        pickle.dump(res, outp)
+    with open(opath + 'ultranest_results.pkl', 'wb') as outp:
+        pickle.dump(result_raw, outp)
+elif sampler_type == "dynesty":
+    sampler_result = extract_dynesty(sampler)
+    import pickle
+    with open(opath + 'dynesty_results.pkl', 'wb') as outp:
+        pickle.dump(sampler.results, outp)
 else:
-    tau = sampler.get_autocorr_time(tol=0)
-    log_prob_walkers_noflat = sampler.get_log_prob()
-    np.save(opath+'tau.npy', tau)
-    np.save(opath+'log_prob_walkers_noflat.npy', log_prob_walkers_noflat)
-    print("Max autocorrelation time: {:0.2f}".format(np.max(tau)))
+    sampler_result = extract_emcee(sampler, burn_frac=0.5)
+    np.save(opath + 'tau.npy', sampler_result.metadata['tau'])
+
+np.save(opath + 'log_prob_walkers_noflat.npy', sampler_result.log_likelihood)
+
+if sampler_type == "emcee":
+    print("Max autocorrelation time: {:0.2f}".format(
+        np.max(sampler_result.metadata['tau'])))
     f = open(opath+'time.txt', 'a')
-    f.write("Max autocorrelation time: {:0.2f}\n".format(np.max(tau)))
+    f.write("Max autocorrelation time: {:0.2f}\n".format(
+        np.max(sampler_result.metadata['tau'])))
+    f.close()
+
+if sampler_type in ("dynesty", "ultranest"):
+    print("ln(Z) = {:.2f} +/- {:.2f}".format(
+        sampler_result.evidence, sampler_result.evidence_err))
+    f = open(opath+'time.txt', 'a')
+    f.write("ln(Z) = {:.2f} +/- {:.2f}\n".format(
+        sampler_result.evidence, sampler_result.evidence_err))
     f.close()
 
 from multiprocessing import cpu_count
@@ -664,9 +865,9 @@ f.close()
 print("{0} CPUs AVAILABLE".format(ncpu))
 print("{0} CPUs USED".format(ncores))
 
-SA.sampler = sampler ## So that save_results can work
-SA.save_results() ## Save the results and plots.
-# SA.save_results_sampler() ## Save the results and plots.
+SA.sampler_result = sampler_result
+# SA.plotfit = plotfit
+SA.save_results()
 
 if SA.return_warning_nanlikelidhood:
     print('CAUTION: NaN likelihood !')
