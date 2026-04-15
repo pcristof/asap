@@ -130,9 +130,9 @@ def main():
 
     ## Cool. But now I need to read the results file:
     # results = read_res(args.indir+'results_raw.txt')
-    results = read_res_v2(args.indir+'results.txt')
-    SA.set_from_file(args.indir+'results_raw.txt')
-
+    # results = read_res_v2(args.indir+'results.txt')
+    SA.set_from_file(args.indir+'results.txt')
+    
     ## Load the fit-data.fits file if available
     if os.path.isfile(args.indir+'fit-data.fits'):
         from astropy.io import fits
@@ -219,6 +219,8 @@ def main():
         valdplots = SA.valdplots
         valdlabels = SA.valdlabels
         # print(SA._T, SA._L, SA._M, SA.vsini, SA.vmac)
+        print(SA._T2, SA.fillTeffs, SA.vinstru)
+
         newefit = SA.gen_spec(SA.obs_wvl, SA.obs_flux, SA.obs_err, 
                     SA.nan_mask, SA.nwvls, SA.grid_n, 
                     SA.coeffs, SA._T, SA._L, SA._M, SA._A,
@@ -530,8 +532,11 @@ def main():
         replot()
 
     def update_fillteffs(_fill1):
-        SA.fillTeffs[1] = _fill1
-        SA.fillTeffs[0] = 1 - SA.fillTeffs[1] 
+        print(_fill1)
+        # SA.fillTeffs[1] = _fill1
+        # SA.fillTeffs[0] = 1 - SA.fillTeffs[1] 
+        SA.update_fillTeffs([1-_fill1, _fill1])
+        print(SA.fillTeffs)
         replot()
 
 

@@ -208,9 +208,10 @@ def read_res_v2(filename):
             if line.strip()[0]=='': continue ## Empty line handling
             sl = line.split(':')
             ## Check file consistency
-            print(len(sl))
-            print(sl)
-            if len(sl)!=3: raise Exception('Error reading file; '
+            if len(sl)!=3: 
+                print(len(sl))
+                print(sl)
+                raise Exception('Error reading file; '
                                         +'should contain 3 :-seperated columns')
             _type = sl[0].strip(); _var = sl[1].strip(); _value = sl[2].strip()
             if _type not in supported_types: 
@@ -430,7 +431,7 @@ class SpectralAnalysis:
         self._L         = None
         self._M         = None
         self._A         = None
-        self.fillTeffs  = np.array([1, 0])
+        self.fillTeffs  = np.array([1., 0.])
         self.smoothSpectraVel = 0.0 ## initialize the velocity used to smooth the spectra
         self.smoothSpectra = False
         ## Define some variables to store chi2 and ln part of the likelihood
@@ -699,6 +700,10 @@ class SpectralAnalysis:
             fitTeff2 = config.getboolean('ATMO', 'fitTeff2') ## For the two temperature model
         except:
             fitTeff2 = False
+        try:
+            filFillTeff2 = config.getboolean('ATMO', 'fitFillTeff2') ## For the two temperature model
+        except:
+            filFillTeff2 = False
         fitLogg     = config.getboolean('ATMO', 'fitLogg')
         try:
             autoLogg = config.getboolean('ATMO', 'autoLogg')
@@ -866,6 +871,7 @@ class SpectralAnalysis:
         ## ATMOSPHERIC PARAMETERS
         self.set_fitTeff(fitTeff)
         self.set_fitTeff2(fitTeff2) ## for 2 teff model
+        self.set_fitFillTeff2(fitTeff2) ## for 2 teff model
         self.set_fitLogg(fitLogg)
         self.set_autoLogg(autoLogg)
         self.set_fitMh(fitMh)
@@ -984,6 +990,7 @@ class SpectralAnalysis:
         AVAILABLE_PARAMS.append('fillteff_1')
         if self.fitTeff2:
             PARAMS_FIT.append('teff2')
+        if self.fitFillTeff2:
             PARAMS_FIT.append('fillteff_0')
             PARAMS_FIT.append('fillteff_1')
         self.AVAILABLE_PARAMS = AVAILABLE_PARAMS
@@ -1015,10 +1022,18 @@ class SpectralAnalysis:
         ## Here again the number of fields must be the nunber that we fit +1
     
         PARAMS = self.PARAMS.copy()
+        from IPython import embed;embed()
 
-        for ip, param in enumerate(self.PARAMS_FIT):
-            PARAMS[param] = mcmcs[ip]
-            PARAMS['e_'+param] = emcmcs[ip]
+        ip = 0
+        for _, param in enumerate(self.PARAMS_FIT):
+            ## UGLY FIX TODO: CHANGE THIS
+            if param=='fillteff_0': 
+                PARAMS[param] = 1-mcmcs[ip]
+                # continue ## Do not increase ip
+            else:
+                PARAMS[param] = mcmcs[ip]
+                PARAMS['e_'+param] = emcmcs[ip]
+                ip+=1
         return PARAMS
 
     def set_PARAMS(self, mcmcs, emcmcs):
@@ -1175,6 +1190,8 @@ class SpectralAnalysis:
         self.fitTeff = fitTeff
     def set_fitTeff2(self, fitTeff2):
         self.fitTeff2 = fitTeff2
+    def set_fitFillTeff2(self, fitFillTeff2):
+        self.fitFillTeff2 = fitFillTeff2
     def set_fitLogg(self, fitLogg):
         self.fitLogg = fitLogg
     def set_autoLogg(self, autoLogg):
@@ -1196,7 +1213,7 @@ class SpectralAnalysis:
     def set_alpha(self, _A):
         self._A = _A
     def update_fillTeffs(self, fillTeffs):
-        self.fillTeffs = fillTeffs
+        self.fillTeffs = np.array(fillTeffs)
     def set_interpFunc(self, interpFunc):
         self.interpFunc = interpFunc
     def set_veilingFac(self, veilingFac):
@@ -1284,40 +1301,24 @@ class SpectralAnalysis:
     ## We want a constructor capable of setting the attributes of the
     ## object from a results file.
     def set_from_file(self, filename):
-        attributes = read_res(filename)
-        for key in attributes.keys():
-            if key=='coeffs':
-                self.update_fillFactors(attributes[key])
-            # elif key=='teffs':
-            #     self.update_teffs(attributes[key])
-            # elif key=='loggs':
-            #     self.update_loggs(attributes[key])
-            # elif key=='mhs':
-            #     self.update_mhs(attributes[key])
-            # elif key=='alphas':
-            #     self.update_alphas(attributes[key])
-            elif key=='teff':
-                self.set_teff(attributes[key])
-            elif key=='logg':
-                self.set_logg(attributes[key])
-            elif key=='mh':
-                self.set_mh(attributes[key])
-            elif key=='alpha':
-                self.set_alpha(attributes[key])
-            elif key=='vb':
-                self.set_vb(attributes[key])
-            elif key=='guessrv':
-                self.set_guessRV(attributes[key])
-            elif key=='rv':
-                self.set_rv(attributes[key])
-            elif key=='vsini':
-                self.set_vsini(attributes[key])
-            elif key=='vmac':
-                self.set_vmac(attributes[key])
-            elif key=='lum':
-                self.set_rL(attributes[key])
-            elif key=='veilingFac':
-                self.set_veilingFac(attributes[key])
+        '''This function uses read_res_v2 to get data from a file
+        and asign the relevant values to the object.
+        TODO: finish this function (DRAFT)'''
+        ## Read the input file
+        attributes = read_res_v2(filename)
+        ## Set the values
+        self.update_fillFactors(attributes['mag_ff'])
+        self.set_teff(attributes['teff'])
+        self.set_logg(attributes['logg'])
+        self.set_mh(attributes['mh'])
+        self.set_alpha(attributes['afe'])
+        try:
+            self.set_vb(attributes['vb'])
+        except:
+            print('Warning: vb missing from results file, update ASAP?')
+        self.set_vsini(attributes['vsini'])
+        self.set_vmac(attributes['vmac'])
+        self.set_veilingFac(attributes['veiling'])
 
     #####################################
     #### ---- LOAD OBSERVATIONS ---- ####
@@ -2623,6 +2624,130 @@ class SpectralAnalysis:
     #### ---- GEN SPECTRUM ---- ####
     ################################
     def gen_spec(self, *args):
+
+
+        # from asap.jax_tools.gen_spec import gen_spec_jax
+
+        # coeffs = args[6]; T=args[7]; L=args[8]; M=args[9]; A=args[10]
+        # teffs = args[11]; loggs=args[12]; mhs=args[13]; alphas=args[14]
+        # vb=args[15]; vrad=args[16]; vsini=args[17]; vmac=args[18]
+        # fit_jax = gen_spec_jax(self.obs_wvl, self.obs_flux, self.obs_err, 
+        #             self.nan_mask, self.nwvls, self.grid_n, 
+        #             coeffs, T, L, M, A,
+        #             teffs, loggs, mhs, alphas, vb=0., vrad=0.,  
+        #             vsini=vsini, vmac=vmac, adj=1)
+
+        # #### THIS IS TO TEST DIFFERENTIATION
+        # import jax
+        # import jax.numpy as jnp
+
+        # # Suppose you want gradients w.r.t. coeffs
+        # coeffs/=coeffs.sum()
+        # coeffs = jnp.array(coeffs)  # make sure it's a JAX array
+
+        # obs_wvl = self.obs_wvl
+        # obs_flux = self.obs_flux
+        # obs_err = self.obs_err
+        # nan_mask = self.nan_mask
+        # nwvls = self.nwvls
+        # grid_n = self.grid_n
+        
+        # from asap.jax_tools.gen_spec import gen_spec_jax
+        # def loss_fn(params):
+        #     T, L, M, A, vb, vrad, vsini, vmac = params
+        #     # compute the model spectrum with your current parameters
+        #     model_spec = gen_spec_jax(
+        #         obs_wvl,
+        #         obs_flux,
+        #         obs_err,
+        #         nan_mask,
+        #         nwvls,
+        #         grid_n,
+        #         coeffs,  # this is the variable we differentiate wrt
+        #         T, L, M, A,
+        #         teffs, loggs, mhs, alphas,
+        #         vb=0.,
+        #         vrad=0.,
+        #         vsini=vsini,
+        #         vmac=vmac,
+        #         adj=0
+        #     )
+        #     # define a scalar “loss” to differentiate, e.g. MSE with observations
+        #     return jnp.sum((model_spec))
+
+
+        # params = T, L, M, A, 100, vrad, vsini, vmac
+
+        # self.adjcont = True
+        # fit_v = self.gen_spec_int_spectra(*args)
+        # import matplotlib.pyplot as plt
+
+        # # from asap.jax_tools.normalization import adjust_continuum_jax
+        # # from asap.jax_tools.effects import  broaden_spectrum_jax
+
+
+        # # r = 22
+        # # # --- Broadening ---
+        # # flux_broadened = broaden_spectrum_jax(
+        # #     nwvls[r],
+        # #     grid_n[1,1,1,1,1][r],
+        # #     vinstru=self.vinstru,
+        # #     vsini=self.vsini,
+        # #     epsilon=0.6,
+        # #     vmac=self.vmac,
+        # #     vmac_mode=0,
+        # # )
+        # # # --- Interpolation (JAX-safe) ---
+        # # spectrum_interp = jnp.interp(obs_wvl[r], nwvls[r], flux_broadened)
+
+        # # spectrum_interp = spectrum_interp+0.1
+
+        # # continuum, coeffs_obs, coeffs_mod, w_obs, w_mod, cont_obs, cont_mod = adjust_continuum_jax(
+        # #     obs_wvl[r], obs_flux[r], spectrum_interp)
+        
+        # # plt.figure()
+        # # plt.plot(obs_wvl[r], obs_flux[r])
+        # # plt.plot(obs_wvl[r], cont_obs)
+        # # plt.plot(obs_wvl[r], spectrum_interp)
+        # # plt.plot(obs_wvl[r], cont_mod)
+        # # # plt.plot(obs_wvl[r], spectrum_interp/continuum)
+        # # # plt.plot(obs_wvl[r], obs_flux[r]*w_obs)
+        # # # plt.plot(obs_wvl[r], continuum)
+        # # plt.show()
+
+        # itime=time.time()
+        # for i in range(100):
+        #     self.gen_spec_int_spectra(*args)
+        # etime=time.time()
+        # print(f"Time:{etime-itime}")
+
+
+        # itime=time.time()
+        # for i in range(100):
+        #     fit_jax = gen_spec_jax(self.obs_wvl, self.obs_flux, self.obs_err, 
+        #                 self.nan_mask, self.nwvls, self.grid_n, 
+        #                 coeffs, T, L, M, A,
+        #                 teffs, loggs, mhs, alphas, vb=0., vrad=0.,  
+        #                 vsini=vsini, vmac=vmac, adj=1)        
+        # etime=time.time()
+        # print(f"Time:{etime-itime}")
+
+
+        # from IPython import embed;embed()
+        # exit()
+
+        # plt.figure()
+        # plt.plot(obs_wvl.T, obs_flux.T, color='k')
+        # plt.plot(obs_wvl.T, fit_v.T, color='b')
+        # plt.plot(obs_wvl.T, fit_jax.T, color='r')
+        # # plt.plot(obs_wvl.T, fit_v.T/fit_jax.T, color='r')
+        # plt.show()
+
+        # # Compute gradient w.r.t. coeffs
+        # grad_coeffs = jax.grad(loss_fn)(coeffs)
+        # print(grad_coeffs)
+
+
         if self.diskIntegrationMode==1: fit_v = self.gen_spec_mu(*args)
         elif self.diskIntegrationMode==0: fit_v = self.gen_spec_int_spectra(*args)
         elif self.diskIntegrationMode==2: fit_v = self.gen_spec_int_pca(*args)
@@ -2877,7 +3002,7 @@ class SpectralAnalysis:
              coeffs, T, L, M, A,
              teffs, loggs, mhs, alphas, vb=None, rv=None,  
              vsini=None, vmac=None, veilingFacToFit=None,
-               T2=None, fillTeffs=np.array([1, 0])):
+               T2=None, fillTeffs=None):
         '''Genertare interpolated, broadened and adjusted magnetic model.'''
 
         if vb is None: vb = self.vb
@@ -2885,6 +3010,7 @@ class SpectralAnalysis:
         if vsini is None: vsini = self.vsini
         if vmac is None: vmac = self.vmac
         if veilingFacToFit is None: veilingFacToFit = self.veilingFacToFit
+        if fillTeffs is None: fillTeffs = self.fillTeffs
         ## Determine the radial velocity shift
         dopshift = tls.doppler(rv)
         _Bspec = np.zeros((self.d5, self.d6, self.d7))
@@ -3021,6 +3147,8 @@ class SpectralAnalysis:
             else:
                 tosum = [coeffs[i] * _Bspec[i] for i in range(len(coeffs))]
             mergedspec2 = np.sum(tosum, axis=0) ## non-broad non-adj magnetic model
+            # dopshift2 = tls.doppler(rv2)
+            # mergedspec2 = np.interp(nwvls, nwvls*, _flux)
             mergedspec = fillTeffs[0]*mergedspec + fillTeffs[1]*mergedspec2
         ## Apply the doppler shift to the wavelength solution of the
         ## SYNTHETIC spectrum. IF it is applied to the observation spectrum
@@ -3259,6 +3387,7 @@ class SpectralAnalysis:
         if self.fitTeff2: ## Second temperature
             _T2 = par[i]
             i += 1
+        if self.fitFillTeff2:
             _fillTeffs2 = par[i]
             _fillTeffs = np.array([1-_fillTeffs2, _fillTeffs2])
             i += 1
@@ -3803,6 +3932,7 @@ class SpectralAnalysis:
             initial = np.append(initial, self.veilingFacToFit) ## initial guess
         if self.fitTeff2:
             initial = np.append(initial, _T2)
+        if self.fitFillTeff2:
             initial = np.append(initial, fillTeffs[1]) ## We only fit the second component and deduce the first one
         self.initial = initial
         self._T = _T; self._T2 = _T2; self._L = _L; self._M = _M; self._A = _A
@@ -4034,6 +4164,29 @@ class SpectralAnalysis:
                 labels.insert(0, r'$a_0$')
             else:
                 nssamples = ssamples
+
+            # ############
+            # ## TODO: Clean up this mess and be more clever about this...
+            # ## This is uggly, and not very flexible... 
+            # ## And this is where it gets a little trickier because we have
+            # ## a second temperature to ad...
+            # if self.fitFillTeff2:
+            #     ## I need to know which index corresponds to the fillTeff2
+            #     for i in range(len(self.PARAMS_FIT)): 
+            #         if self.PARAMS_FIT[i]=='fillteff_0': break
+            #     _fillteff2 = (nssamples.T)[i] ## This is the filling factor
+            #     new_nssamples = np.empty((len(nssamples), len(nssamples[0])+1)).T
+            #     for j in range(i):
+            #         new_nssamples[j] = (nssamples.T)[j]
+            #     new_nssamples[i] = _fillteff2
+            #     for j in range(i+1, len(new_nssamples)):
+            #         new_nssamples[j] = (nssamples.T)[j-1]
+            #     nssamples = new_nssamples.T
+            #     ## Add the label for non-magnetic component to list of labels
+            #     labels.insert(i, r'$fillTeff0$')
+            # else:
+            #     nssamples = ssamples
+            # ######
 
             ndim = len(labels) ## dimensions of nssamples
             data['ndim'] = ndim
@@ -5522,7 +5675,8 @@ class SpectralAnalysis:
                         'str:star', 'str:input_filename', 
                         'sep:-',
                         'flt:teff', 'flt:logg', 'flt:mh', 'flt:afe', 
-                        'flt:vsini', 'flt:vmac', 'str:vmac_mode', 
+                        'flt:vsini', 'flt:vmac', 'str:vmac_mode',
+                        'flt:vb',
                         'flt:guess_rv', 'flt:rv',
                         'flt:mag_max_lnlike', 
                         'flt:mag_average',

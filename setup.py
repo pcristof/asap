@@ -75,7 +75,8 @@ setup(
         "corner",
         "tqdm",
         "scipy",
-        "PyAstronomy"
+        "PyAstronomy",
+        "jax"
     ],
     entry_points={
         'console_scripts': [
@@ -86,6 +87,7 @@ setup(
             'asap.pca_compress_zeeturbo_grid='\
             +'asap.scripts.pca_compress_zeeturbo_grid:main',
             'asap.interactive=asap.scripts.interactive:main',
+            'asap.run_opt_jax=asap.jax_tools.run_opt_jax:main',
             # 'asap.run_analysis=asap.scripts.run_analysis:main',  # Command-line utility
         ],
     },

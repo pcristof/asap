@@ -405,8 +405,10 @@ def define_ranges():
 ranges, idxStart = define_ranges()
 
 def prior_transform(u):
-    '''I am trying to now implement a Nested sampling approach with dynasty instead of a MCMC.
-    This is the prior_transform function required by dynasty for uniform priors.'''
+    '''I am trying to now implement a Nested sampling approach with dynasty 
+    instead of a MCMC.
+    This is the prior_transform function required by 
+    dynasty for uniform priors.'''
     ##
     # if u is None:
     #     _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
@@ -591,7 +593,7 @@ else:
     print('Running in non parallel mode')
     if dynesty:
         sampler = NestedSampler(lnprob, prior_transform, ndim, nlive=nsteps)
-    elif ultranest:
+    elif run_ultranest:
         sampler = ultranest.ReactiveNestedSampler(labels, lnprob, 
                                                   prior_transform)
     else:
