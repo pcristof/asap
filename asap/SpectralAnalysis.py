@@ -2733,6 +2733,8 @@ class SpectralAnalysis:
         dopshift = tls.doppler(rv)
         _Bspec = np.zeros((self.d5, self.d6, self.nb_mus, self.d7))
         _Conts = np.zeros((self.d5, self.d6, self.nb_mus, self.d7))
+        import time
+        itime = time.time()
         for i in range(self.d5):
             # except:
             # # try:        
@@ -2824,12 +2826,17 @@ class SpectralAnalysis:
         # _, _, _, fit0, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
         #                                                 macProf='g')
 
-        args = [0, nwvls_shift, disk_integrated_spectrum, obs_wvl, obs_flux, obs_err,
-                nan_mask, totvb, vmac, vsini,
-                0, 0, 0, '0', self.adjcont, 'line']
-        ## fit is the model after broadening and adjustment
-        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args,
-                                                        macProf='g')
+        import time
+        itime = time.time()
+        for II in range(1000):
+            args = [0, nwvls_shift, disk_integrated_spectrum, obs_wvl, obs_flux, obs_err, 
+                    nan_mask, totvb, vmac, vsini, 
+                    0, 0, 0, '0', self.adjcont, 'line']
+            ## fit is the model after broadening and adjustment
+            _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                            macProf='g')
+        etime = time.time()
+        print(f"Time: {etime-itime}")
 
         # ## New cython implementation should be faster
         # fit, _c = broaden_spectra_cy(nwvls_shift, disk_integrated_spectrum, 
@@ -2876,6 +2883,8 @@ class SpectralAnalysis:
             except:
                 raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
             _Bspec[i] = s
+        etime = time.time()
+        print(f'Time:{etime-itime}')
 
         mergedspec = np.empty((self.d6, self.d7))
 
