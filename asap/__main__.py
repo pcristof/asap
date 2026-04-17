@@ -38,13 +38,21 @@ parser.add_argument("-d", "--dynesty", action='store_true', default=False,
 parser.add_argument("-u", "--run_ultranest", action='store_true', default=False,
                     help='Use UltraNest reactive nested sampling instead of emcee')
 parser.add_argument("--nlive", type=int, default=None,
-                    help='Override live points for nested sampling (config-first when omitted).')
+                    help='Override live points for nested sampling '
+                         + '(config-first when omitted).')
+## BUG: These variable have no effects on the MCMC run.
 parser.add_argument("--nsteps", type=int, default=None,
-                    help='Override step-sampler nsteps for UltraNest (config-first when omitted).')
+                    help='Override step-sampler nsteps for UltraNest '
+                         + '(config-first when omitted).')
 parser.add_argument("--magfields", nargs='+', type=float, default=None,
-                    help='Override magFields from config (space-separated kG values, e.g. --magfields 0 2 4)')
+                    help='Override magFields from config (space-separated kG '
+                         + 'values, e.g. --magfields 0 2 4)')
 parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
-                    help='Override fillFactors from config (space-separated values summing to 1, e.g. --fillfactors 0.5 0.3 0.2)')
+                    help='Override fillFactors from config (space-separated '
+                         + 'values summing to 1, e.g. '
+                         + '--fillfactors 0.5 0.3 0.2)')
+parser.add_argument("--student", action='store_true', default=False,
+                    help='Use the student-t distribution and fit for the DOF')
 
 args = parser.parse_args()
 # plotfit = args.plotfit
@@ -240,6 +248,8 @@ if mpi_rank == 0:
 
 ## Update the sampling method in the object to keep track of it
 SA.set_samplerType(sampler_type.upper())
+
+SA.set_student(args.student)
 
 labels = SA.return_labels()
 
@@ -569,11 +579,21 @@ def prior_transform(u):
     # We draw (idxStart+1) Gamma(1,1) variates from only idxStart cube dims
     # by using a fixed variate (1.0 = the mean of Exp(1)) for the zero-field
     # component.  This gives a symmetric Dirichlet draw that sums to 1.
+    ## PIC: There is something funky here. If you want to draw from a dirichlet
+    ## you can't quite fix the first coeff to 1... (I think).
+    ## It's still not quite clear to me whether we should just draw N random
+    ## values to deduce the first, or if we should pass N+1 values to
+    ## cleanly draw from a dirichlet distribution.
     if idxStart > 0:
-        gamma_free = -np.log(np.clip(u[:idxStart], 1e-300, None))  # Exp(1) variates
-        gamma_zero = 1.0  # fixed variate for the zero-field component
-        gamma_sum = gamma_free.sum() + gamma_zero
-        theta[:idxStart] = gamma_free / gamma_sum   # free fractions; zero-field = gamma_zero / gamma_sum
+        v = np.zeros(idxStart+1)
+        v[1:] = u[:idxStart] ## All the coefficients we passed
+        v[0] = (idxStart - np.sum(u[:idxStart]))/idxStart
+        gamma_all = -np.log(np.clip(v, 1e-300, None))  # Exp(1) variates
+        gamma_free = gamma_all[1:]/gamma_all.sum()
+        theta[:idxStart] = gamma_free
+        # gamma_zero = 1.0  # fixed variate for the zero-field component
+        # gamma_sum = gamma_free.sum() + gamma_zero
+        # theta[:idxStart] = gamma_free / gamma_sum   # free fractions; zero-field = gamma_zero / gamma_sum
 
     return theta
 

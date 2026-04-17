@@ -66,6 +66,7 @@ from asap.spectral_analysis_pack import fill_nans_wavelength_v3
 from asap.line_selection_tools import find_optimal_order
 import corner
 from asap.sampler_utils import SamplerResult, weighted_percentile
+from scipy.special import gammaln
 
 import shutil
 
@@ -363,6 +364,9 @@ class SpectralAnalysis:
     can be changed using the update functions.'''
 
     def __init__(self, **kargs):
+        self.studentNu = 1 ## student-t degrees of freedom
+        self.fitStudentNu = False ## Whether we fit the student
+        self.lnlikeMode = 'gaussian'
         self.samplerType = 'MCMC'
         self.runTime = 0.
         self.input_filename = None
@@ -1364,7 +1368,12 @@ class SpectralAnalysis:
         self.dynesty = dynesty
     def set_instrument(self, instrument):
         self.instrument = instrument
-
+    def set_student(self, val):
+        '''Sets whether we use the student-t likelihood or the usual
+        Gaussian likelihood.'''
+        if val:
+            self.fitStudentNu = True 
+            self.lnlikeMode = 'student_t'
     ## We want a constructor capable of setting the attributes of the
     ## object from a results file.
     def set_from_file(self, filename):
@@ -3258,7 +3267,9 @@ class SpectralAnalysis:
             i += 1
             labels.append(r"$f_{T_{\rm eff, 2}}$")
             i += 1
-        
+        if self.fitStudentNu: ## We are fitting the student distribution DOF
+            labels.append(r'$\nu$')
+            i += 1
         self.labels =labels
         return labels
 
@@ -3278,6 +3289,7 @@ class SpectralAnalysis:
         _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
         veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
         coeffs = self.coeffs
+        self._studentNu = self.studentNu
 
         ## Run through conditions
         nbOfFields = len(self.bs) ## This will helps us unpack par
@@ -3346,11 +3358,14 @@ class SpectralAnalysis:
             _fillTeffs2 = par[i]
             _fillTeffs = np.array([1-_fillTeffs2, _fillTeffs2])
             i += 1
+        if self.fitStudentNu:
+            self._studentNu = par[i]
+            i+=1
         ## Special case: if we have set the autoLogg
         if self.autoLogg:
             _L = self.compute_logg(_T, _M)
 
-        return coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, _T2, _fillTeffs
+        return coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, _T2, _fillTeffs, self._studentNu
 
     def compute_normFactor(self, normFactor=None):
         '''Function computing the normalization factor
@@ -3430,7 +3445,7 @@ class SpectralAnalysis:
             gg.write("{} {}\n".format(star, val))
         gg.close()
 
-    def lnlike(self, par=None):
+    def lnlike(self, par=None, lnlikeMode=None):
         '''This function returns should return 
         something that looks like a chi2.
         Inputs:
@@ -3443,7 +3458,10 @@ class SpectralAnalysis:
             coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
-               _T2, _fillTeffs = self.unpackpar(par)
+               _T2, _fillTeffs, _studentNu = self.unpackpar(par)
+
+        if lnlikeMode is None:
+            lnlikeMode = self.lnlikeMode
 
         # ##################
         # ##################
@@ -3565,22 +3583,31 @@ class SpectralAnalysis:
 
         # _resdown[idxout] = _resdown[idxout]*1e5 ## Lower the weight on those points
 
+        if lnlikeMode=='student_t':
+            r2 = _resup
+            s2 = _resdown
 
-        _res = _resup/_resdown
+            ## This would be computin the Student t likehood
+            ## TODO: check this is correct
+            term1 = gammaln((_studentNu + 1) / 2) - gammaln(_studentNu / 2)
+            term2 = -0.5 * (np.log(_studentNu * np.pi * s2))
+            term3 = -((_studentNu + 1) / 2) * np.log(1 + r2 / (_studentNu * s2))
+            outval = np.sum(term1 + term2 + term3)
+        else:
+            _res = _resup/_resdown
 
-        # ln(p(x)) = -0.5 * (x-mu/sigma)**2 - ln(sigma*sqrt(2*pi)) 
-        self._res = _res
-        # outval = np.sum(-.5*_res - np.log(2*np.pi*myerr)) ## This would be false
-        # outval = np.sum(-.5*_res - np.log(np.sqrt(2*np.pi)*np.sum(myerr)))
-        n = len(myerr)
-        # outval = -0.5*np.sum(_res) - (n/2)*np.log(np.sum(myerr**2)) - (n/2)*np.log(2*np.pi)
-        
-        ## Did I mess up the likelihood?
-        outval = -0.5*np.sum(_res) - 0.5*np.sum(np.log(2*np.pi*myerr**2)) #- (n/2)*np.log(2*np.pi)
+            # ln(p(x)) = -0.5 * (x-mu/sigma)**2 - ln(sigma*sqrt(2*pi)) 
+            self._res = _res
+            # outval = np.sum(-.5*_res - np.log(2*np.pi*myerr)) ## This would be false
+            # outval = np.sum(-.5*_res - np.log(np.sqrt(2*np.pi)*np.sum(myerr)))
+            n = len(myerr)
+            # outval = -0.5*np.sum(_res) - (n/2)*np.log(np.sum(myerr**2)) - (n/2)*np.log(2*np.pi)
+            
+            ## Did I mess up the likelihood?
+            outval = -0.5*np.sum(_res) - 0.5*np.sum(np.log(2*np.pi*myerr**2)) #- (n/2)*np.log(2*np.pi)
         
         return outval
 
-        
     def gaussian(self, x, sigma=0.5, mu=0.):
         return 1.0/(np.sqrt(2*np.pi)*sigma) * np.exp(-0.5*(x-mu)**2 / sigma**2)
 
@@ -3616,7 +3643,7 @@ class SpectralAnalysis:
             coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
-               _T2, _fillTeffs = self.unpackpar(par)
+               _T2, _fillTeffs, _studentNu = self.unpackpar(par)
 
         # if np.isnan(coeffs[0]):
         #     # print('NaN in coeffs[0]')
@@ -3635,6 +3662,8 @@ class SpectralAnalysis:
         if (_M<self.mhs[0]) | (_M>self.mhs[-1]):
             return -np.inf
         if (_A<self.alphas[0]) | (_A>self.alphas[-1]):
+            return -np.inf
+        if (_studentNu<0) | (_studentNu>100):
             return -np.inf
 
         ## Apply priors to forbid negative vsini, vmac and vb values.
@@ -3888,6 +3917,8 @@ class SpectralAnalysis:
         if self.fitTeff2:
             initial = np.append(initial, _T2)
             initial = np.append(initial, fillTeffs[1]) ## We only fit the second component and deduce the first one
+        if self.fitStudentNu:
+            initial = np.append(initial, self.studentNu)
         self.initial = initial
         self._T = _T; self._T2 = _T2; self._L = _L; self._M = _M; self._A = _A
         # if coeffs is None: ## It should never be None now
@@ -4762,6 +4793,7 @@ class SpectralAnalysis:
                         'flt:teff', 'flt:logg', 'flt:mh', 'flt:afe', 
                         'flt:vsini', 'flt:vmac', 'str:vmac_mode', 
                         'flt:guess_rv', 'flt:rv',
+                        'str:lnlikeMode',
                         'flt:mag_max_lnlike', 
                         'flt:mag_average',
                         'arr:mag_components',
@@ -4862,6 +4894,8 @@ class SpectralAnalysis:
                     resdict['veiling_err']=eresveil
                 elif _var=='veiling_bands': 
                     resdict['veiling_bands']=self.veilingBands
+                elif _var=='lnlikeMode':
+                    resdict['lnlikeMode']=self.lnlikeMode
                     
         self.floatResultsPrecision = 4
         RP = self.floatResultsPrecision ## results precision
