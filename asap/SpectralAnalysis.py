@@ -492,7 +492,7 @@ class SpectralAnalysis:
                                  'teff', 'logg', 'mh', 'alpha', 
                                  'vb', 'rv', 'vsini', 'vmac', 
                                  'rI', 'rY', 'rJ', 'rH', 'rK', 'rL',
-                                 'teff2', 'fillteff2'] ## list of all paramters that could be fitted
+                                 'teff2', 'fillteff2', 'student_t_dof'] ## list of all paramters that could be fitted
         self.PARAMS_FIT = []
         self.PARAMS = {} ## list of parameters that are actually fitted
 
@@ -1074,6 +1074,9 @@ class SpectralAnalysis:
             PARAMS_FIT.append('teff2')
             PARAMS_FIT.append('fillteff_0')
             PARAMS_FIT.append('fillteff_1')
+        if self.fitStudentNu:
+            PARAMS_FIT.append('student_t_dof')
+        AVAILABLE_PARAMS.append('student_t_dof')
         self.AVAILABLE_PARAMS = AVAILABLE_PARAMS
         self.PARAMS_FIT = PARAMS_FIT
 
@@ -1082,7 +1085,8 @@ class SpectralAnalysis:
         
         list_of_params_raw=[self.coeffs, [self._T], [self._L], [self._M], [self._A], 
                         [self.vb], [self.rv], [self.vsini], [self.vmac],
-                        self.veilingFac, [self._T2], self.fillTeffs]
+                        self.veilingFac, [self._T2], self.fillTeffs, 
+                        [self.studentNu]]
         list_of_params = []
         for element in list_of_params_raw:
             for subelement in element:
@@ -4802,6 +4806,7 @@ class SpectralAnalysis:
                         'str:veiling_bands',
                         'arr:veiling',
                         'arr:veiling_err',
+                        'flt:student_t_dof',
                         'sep:-',
                         'cst:lnlike_max', 
                         'cst:chi2_min', 
@@ -4896,7 +4901,7 @@ class SpectralAnalysis:
                     resdict['veiling_bands']=self.veilingBands
                 elif _var=='lnlikeMode':
                     resdict['lnlikeMode']=self.lnlikeMode
-                    
+
         self.floatResultsPrecision = 4
         RP = self.floatResultsPrecision ## results precision
         CH = RP+8

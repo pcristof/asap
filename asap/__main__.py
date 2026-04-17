@@ -186,6 +186,8 @@ SA.set_star(star) ## Dummy variable to identify the star
 # SA.simbad_grep()
 SA.read_config(config_file_copy)
 
+SA.set_student(args.student) ## Must happen before SA.init_PARAMS
+
 ## Override magFields and/or fillFactors from CLI if provided
 if args.magfields is not None or args.fillfactors is not None:
     ## Validate consistency between magfields and fillfactors
@@ -249,7 +251,6 @@ if mpi_rank == 0:
 ## Update the sampling method in the object to keep track of it
 SA.set_samplerType(sampler_type.upper())
 
-SA.set_student(args.student)
 
 labels = SA.return_labels()
 
