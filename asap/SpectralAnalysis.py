@@ -4797,7 +4797,6 @@ class SpectralAnalysis:
                         'flt:teff', 'flt:logg', 'flt:mh', 'flt:afe', 
                         'flt:vsini', 'flt:vmac', 'str:vmac_mode', 
                         'flt:guess_rv', 'flt:rv',
-                        'str:lnlikeMode',
                         'flt:mag_max_lnlike', 
                         'flt:mag_average',
                         'arr:mag_components',
@@ -4808,6 +4807,7 @@ class SpectralAnalysis:
                         'arr:veiling_err',
                         'flt:student_t_dof',
                         'sep:-',
+                        'str:lnlike_mode',
                         'cst:lnlike_max', 
                         'cst:chi2_min', 
                         'int:nb_points',
@@ -4899,8 +4899,8 @@ class SpectralAnalysis:
                     resdict['veiling_err']=eresveil
                 elif _var=='veiling_bands': 
                     resdict['veiling_bands']=self.veilingBands
-                elif _var=='lnlikeMode':
-                    resdict['lnlikeMode']=self.lnlikeMode
+                elif _var=='lnlike_mode':
+                    resdict['lnlike_mode']=self.lnlikeMode
 
         self.floatResultsPrecision = 4
         RP = self.floatResultsPrecision ## results precision
