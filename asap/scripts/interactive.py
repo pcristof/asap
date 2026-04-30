@@ -863,8 +863,8 @@ def main():
         veil0_slider = Slider(
             ax=axveil0,
             label=r'$r$  ',
-            valmin=0,
-            valmax=4,
+            valmin=-4,
+            valmax=5,
             valinit=default,
         )
         ii+=1
@@ -877,7 +877,7 @@ def main():
         veil1_slider = Slider(
             ax=axveil1,
             label=r'$r_{\rm Y}$  ',
-            valmin=0,
+            valmin=-4,
             valmax=4,
             valinit=default,
         )
@@ -893,7 +893,7 @@ def main():
         veil2_slider = Slider(
             ax=axveil2,
             label=r'$r_{\rm J}$  ',
-            valmin=0,
+            valmin=-4,
             valmax=4,
             valinit=default,
         )
@@ -907,7 +907,7 @@ def main():
         veil3_slider = Slider(
             ax=axveil3,
             label=r'$r_{\rm H}$  ',
-            valmin=0,
+            valmin=-4,
             valmax=4,
             valinit=default,
         )
@@ -921,7 +921,7 @@ def main():
         veil4_slider = Slider(
             ax=axveil4,
             label=r'$r_{\rm K}$  ',
-            valmin=0,
+            valmin=-4,
             valmax=4,
             valinit=default,
         )
@@ -935,7 +935,7 @@ def main():
         veil5_slider = Slider(
             ax=axveil5,
             label=r'$r$  ',
-            valmin=0,
+            valmin=-4,
             valmax=4,
             valinit=default,
         )
