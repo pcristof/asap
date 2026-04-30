@@ -1072,7 +1072,9 @@ class SpectralAnalysis:
         AVAILABLE_PARAMS.append('fillteff_1')
         if self.fitTeff2:
             PARAMS_FIT.append('teff2')
-            PARAMS_FIT.append('fillteff_0')
+            ## DO NOT add fillteff_0 to the fitting parameters
+            ## Since it is derived from the first.
+            # PARAMS_FIT.append('fillteff_0')
             PARAMS_FIT.append('fillteff_1')
         if self.fitStudentNu:
             PARAMS_FIT.append('student_t_dof')
@@ -1107,7 +1109,6 @@ class SpectralAnalysis:
         ## Here again the number of fields must be the nunber that we fit +1
     
         PARAMS = self.PARAMS.copy()
-
         for ip, param in enumerate(self.PARAMS_FIT):
             PARAMS[param] = mcmcs[ip]
             PARAMS['e_'+param] = emcmcs[ip]
@@ -3265,7 +3266,7 @@ class SpectralAnalysis:
         if self.fitVeiling:
             for band in self.fitBands:
                 labels.append("$r_{\\rm "+band+"}$")
-            i+=1+self.nbFitVeil
+            i+=self.nbFitVeil
         if self.fitTeff2: ## Second temperature
             labels.append(r'$T_{\rm eff, 2}$ (K)')
             i += 1
@@ -3355,7 +3356,7 @@ class SpectralAnalysis:
             i+=1        
         if self.fitVeiling:
             veilingFacToFit = par[i:i+self.nbFitVeil]
-            i+=1+self.nbFitVeil
+            i+=self.nbFitVeil
         if self.fitTeff2: ## Second temperature
             _T2 = par[i]
             i += 1
@@ -3368,7 +3369,9 @@ class SpectralAnalysis:
         ## Special case: if we have set the autoLogg
         if self.autoLogg:
             _L = self.compute_logg(_T, _M)
-
+        ## Sanity check for debugging; i should be the same as len(par)
+        if len(par)!=i:
+            raise Exception('ERROR in unpackpar --> contact author')
         return coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, _T2, _fillTeffs, self._studentNu
 
     def compute_normFactor(self, normFactor=None):
@@ -3460,6 +3463,7 @@ class SpectralAnalysis:
             _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
             vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
             coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
+            _studentNu = self._studentNu
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
                _T2, _fillTeffs, _studentNu = self.unpackpar(par)
@@ -3680,8 +3684,8 @@ class SpectralAnalysis:
 
         ## Veiling factor should not be negative
         # if veilingFac<0: return -np.inf
-        if np.any(veilingFacToFit<0): return -np.inf
-        if np.any(veilingFacToFit>5): return -np.inf
+        if np.any(veilingFacToFit<-10): return -np.inf
+        if np.any(veilingFacToFit>10): return -np.inf
 
         ## Priors on magnetic filling factors
         valmin = 0; valmax = 0
@@ -3801,7 +3805,7 @@ class SpectralAnalysis:
         if self.fitVeiling:
             for j in range(self.nbFitVeil):
                 ranges.append((0, 10))
-            i+=1+self.nbFitVeil
+            i+=self.nbFitVeil
         if self.fitTeff2: ## Second temperature
             ranges.append((self.teffs[0]-200, self.teffs[-1]))
             i += 1
