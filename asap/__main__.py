@@ -53,6 +53,8 @@ parser.add_argument("--fillfactors", nargs='+', type=float, default=None,
                          + '--fillfactors 0.5 0.3 0.2)')
 parser.add_argument("--student", action='store_true', default=False,
                     help='Use the student-t distribution and fit for the DOF')
+parser.add_argument("--simbad", action='store_true', default=False,
+                    help='Guess the input parameters from SIMBAD if possible')
 
 args = parser.parse_args()
 # plotfit = args.plotfit
@@ -183,8 +185,39 @@ if mpi_size > 1:
 SA = SpectralAnalysis()
 SA.set_opath(opath)
 SA.set_star(star) ## Dummy variable to identify the star
-# SA.simbad_grep()
+#SA.simbad_grep()
 SA.read_config(config_file_copy)
+## Here I want to add an initial guess based on simbad for the temperature and log(g) of the star
+if args.simbad:
+    from asap import simbad_tools as simbad_tools
+    possible_names = simbad_tools.guess_star_name(SA.star)
+    success=False
+    for _i, _name in enumerate(possible_names):
+        try: output = simbad_tools.query_simbad(_name);
+        except: success=False
+        if np.all(np.isnan(output)) & _i<len(possible_names):
+            success = False
+        else:
+            success = True
+        if success: break;
+    if np.any(~np.isnan(output)):
+        print("Using Simbad values as a starting point:")
+        if ~np.isnan(output[0]):
+            SA.set_teff(output[0])
+            print(f"Teff: {SA._T}")
+        if ~np.isnan(output[1]):
+            SA.set_logg(output[1])
+            print(f"log(g): {SA._L}")
+        if ~np.isnan(output[2]):
+            SA.set_mh(output[2])
+            print(f"[M/H]: {SA._M}")
+        if ~np.isnan(output[3]):
+            if SA.fitrot:
+                SA.set_vsini(output[3])
+                print(f"vsin(i): {SA.vsini}")
+            elif SA.fitmac:
+                SA.set_vmac(output[3])
+                print(f"vmac: {SA.vsini}")
 
 SA.set_student(args.student) ## Must happen before SA.init_PARAMS
 

@@ -67,6 +67,8 @@ from asap.line_selection_tools import find_optimal_order
 import corner
 from asap.sampler_utils import SamplerResult, weighted_percentile
 from scipy.special import gammaln
+from asap import nn_tools as nn_tools
+
 
 import shutil
 
@@ -1893,11 +1895,60 @@ class SpectralAnalysis:
         elif gridType=='PCA_COMPRESSED':
             # nwvls = self.load_pca_compressed(pathtogrid, grid_data, regions)
             nwvls = self.load_pca_compressed_decompress(pathtogrid, grid_data, regions)
+        elif gridType=='NN':
+            nwvls = self.load_thepayne(pathtogrid, grid_data, regions)
         else:
             o = self.load_grid_oldstyle(pathtogrid, regions)
             nwvls = o[0]
 
         return nwvls, self.grid_n, self.teffs, self.loggs, self.mhs, self.alphas
+
+    def load_thepayne(self, pathtogrid, grid_data, regions):
+        self.diskIntegrationMode = 3
+        from Payne.predict import predictspec
+        from Payne.utils.smoothing import smoothspec
+        ## Predictor
+        filename = pathtogrid+'modV0_spec_LinNet_R23K_WL450_672.h5'
+        with h5py.File(filename, 'r') as f:
+            payneNormFactor = f['normFactor'][()]
+        pp = predictspec.PayneSpecPredict(filename)
+
+        from asap import nn_tools as nn_tools
+        wave, W, b = nn_tools.read_nn_weights(filename) 
+
+        self.payneNormFactor = payneNormFactor
+        self.grid_n = None
+        self.nwvls = wave
+        self.d7 = len(wave)
+        self.d6 = 1
+
+        self.payneWeights = W
+        self.payneBias = b
+
+        self.payneWaveIdx = np.zeros((len(regions), len(wave)), dtype=bool)
+        for r in range(len(regions)):
+            reg = regions[r]
+            self.payneWaveIdx[r] = (wave>reg[0]) & (wave<reg[1]) 
+
+        return wave
+        # ## Wavelength used (this is the wavlength passed to the TrainMod function in
+        # ## the runtrain_v128.py).
+        # wave = pp.anns.wavelength
+        # self.pp = pp
+        # self.payneNormFactor = payneNormFactor
+        # self.grid_n = None
+        # self.nwvls = wave
+        # self.d7 = len(wave)
+        # self.d6 = 1
+        # self.payneWaveIdx = np.zeros((len(regions), len(wave)), dtype=bool)
+        # for r in range(len(regions)):
+        #     reg = regions[r]
+        #     self.payneWaveIdx[r] = (wave>reg[0]) & (wave<reg[1]) 
+        # return wave
+
+    def thepayne_eval(self, pars, W, b):
+        output = nn_tools.eval_nn(pars, W, b)
+        return output
 
     def load_zeeturbo_mu(self, pathtogrid, grid_data, regions):
         self.diskIntegrationMode = 1
@@ -2724,6 +2775,106 @@ class SpectralAnalysis:
         if self.diskIntegrationMode==1: fit_v = self.gen_spec_mu(*args)
         elif self.diskIntegrationMode==0: fit_v = self.gen_spec_int_spectra(*args)
         elif self.diskIntegrationMode==2: fit_v = self.gen_spec_int_pca(*args)
+        elif self.diskIntegrationMode==3: fit_v = self.gen_spec_NN(*args)
+        return fit_v
+
+    
+    def gen_spec_NN(self, obs_wvl, obs_flux, obs_err, nan_mask, nwvls, grid_n, 
+             coeffs, T, L, M, A,
+             teffs, loggs, mhs, alphas, vb=None, rv=None,  
+             vsini=None, vmac=None, veilingFacToFit=None,
+               T2=None, fillTeffs=np.array([1, 0])):
+        '''Genertare interpolated, broadened and adjusted magnetic model.'''
+
+        if vb is None: vb = self.vb
+        if rv is None: rv = self.rv
+        if vsini is None: vsini = self.vsini
+        if vmac is None: vmac = self.vmac
+        if veilingFacToFit is None: veilingFacToFit = self.veilingFacToFit
+        ## Determine the radial velocity shift
+        dopshift = tls.doppler(rv)
+        _Bspec = np.zeros((self.d5, self.d6, self.d7))
+        
+        # from IPython import embed; embed();exit()
+
+        for i in range(self.d5):
+            try:
+                pars = [np.log10(T), L, M, A, 1.0, self.bs[i]]
+                # s = self.pp.predictspec(pars)
+                s = self.thepayne_eval(pars, self.payneWeights, self.payneBias)
+                # _, s = wrap_interpolate_4d_c(
+                #                                     T, L, M, A,
+                #                                     teffs, loggs, mhs, alphas,
+                #                                     grid_n[i], 
+                #                                     0)
+            except:
+                raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
+            _Bspec[i] = s
+
+        if self.logCoeffs:
+            tosum = [np.exp(coeffs[i]) * _Bspec[i] for i in range(len(coeffs))]
+        else:
+            tosum = [coeffs[i] * _Bspec[i] for i in range(len(coeffs))]
+        mergedspec = np.sum(tosum, axis=0) ## non-broad non-adj magnetic model
+        #
+        ## IF we have a second temperature
+        if T2 is not None:
+            _Bspec = np.zeros((self.d5, self.d6, self.d7))
+            for i in range(self.d5):
+                _, s = wrap_function_fine_linear_4d(
+                                                    T2, L, M, A,
+                                                    teffs, loggs, mhs, alphas,
+                                                    grid_n[i], 
+                                                    function=self.interpFunc)
+                # pars = [np.log10(T2), L, M, A, 1.0, self.bs[i]]
+                # predspec = pp.predictspec(pars)
+                _Bspec[i] = s
+            if self.logCoeffs:
+                tosum = [np.exp(coeffs[i]) * _Bspec[i] for i in range(len(coeffs))]
+            else:
+                tosum = [coeffs[i] * _Bspec[i] for i in range(len(coeffs))]
+            mergedspec2 = np.sum(tosum, axis=0) ## non-broad non-adj magnetic model
+            mergedspec = fillTeffs[0]*mergedspec + fillTeffs[1]*mergedspec2
+        # from IPython import embed; embed();exit()
+
+        nwvls_shift = nwvls * dopshift
+
+
+        ## The total broadening (gaussian) of the instrument is
+        totvb = np.sqrt(self.vinstru**2 + vb**2 + self.smoothSpectraVel**2)
+
+        ## Here we determine the correct veiling
+        # myveiling = veiling_function(veilingFac, nwvls_shift)
+        
+        mergedspec = mergedspec[0]
+
+        args = [0, nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err, 
+                nan_mask, totvb, vmac, vsini, 
+                0, 0, 0, '0', self.adjcont, 'line']
+        ## fit is the model after broadening and adjustment
+        _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
+                                                        macProf=self.vmacMode,
+                                                payneWaveIdx=self.payneWaveIdx)
+
+        # ## Here we determine the correct veiling
+        ## Here I forbid the veiling from the other bands to compensate for the veiling
+        ## in the YJHK bands.
+        ## Now it gets tricky. I will put the values that we actually fit in place in the array
+        ## For the veiling, we therefore must know: which bands we pass to the function
+        ## What are the values provided for all bands
+        ## For which band we fit the values
+        veilingFac = self.veilingFac
+        fitveilpos = np.zeros(self.nbFitVeil, dtype=int)
+        if self.fitVeiling:
+            ## Check that fitBands contain something
+            if self.fitBands=="": raise Exception('fitBands empty but fitVeiling==True')
+            for ib, band in enumerate(self.fitBands):
+                fitveilpos[ib] = self.veilingBands.find(band)
+            veilingFac[fitveilpos] = veilingFacToFit
+        myveiling = veiling_function(veilingFac, obs_wvl, self.veilingBands)
+        fit_v = (fit + myveiling) / (1 + myveiling)# veiled spectrum
+        # fit_v = fit
+
         return fit_v
 
     def gen_spec_mu(self, obs_wvl, obs_flux, obs_err, nan_mask, nwvls, grid_n, 
@@ -2898,7 +3049,7 @@ class SpectralAnalysis:
                 raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
             _Bspec[i] = s
         etime = time.time()
-        print(f'Time:{etime-itime}')
+        # print(f'Time:{etime-itime}')
 
         mergedspec = np.empty((self.d6, self.d7))
 
@@ -3556,6 +3707,37 @@ class SpectralAnalysis:
             _resup = (self.obs_flux_tofit[self.IDXTOFIT] - fit[self.IDXTOFIT])**2
             _resdown = myerr**2
 
+
+        # from IPython import embed;embed()
+
+        increments = np.arange(0.9,1.1,0.01)
+        r = 0 ## For a given region
+        continuum = np.ones(fit.shape)
+        for r in range(len(self.obs_flux_tofit)):
+            ## For this region, get the observation and the model valid points:
+            _idx = self.IDXTOFIT[1][self.IDXTOFIT[0]==r]
+            obs = self.obs_flux_tofit[r, _idx]
+            mod = fit[r, _idx]
+            _myerr = self.obs_err[r, _idx] * np.sqrt(self.normFactor)
+            var = _myerr**2
+
+            chi2 = np.inf
+            # for _c in increments:
+                # _resup = (self.obs_flux_tofit[r, _idx]/_c - fit[r, _idx])**2
+                # _myerr = self.obs_err[r, _idx] * np.sqrt(self.normFactor)
+                # _resdown = _myerr**2
+                # _chi2 = np.sum(_resup/_resdown)
+                # if _chi2<chi2:
+                #     continuum[r, _idx]=_c
+                #     chi2 = _chi2
+            c = np.sum(obs**2 / var) / np.sum(obs * mod / var)
+        continuum = continuum[self.IDXTOFIT]
+
+        _resup = (self.obs_flux_tofit[self.IDXTOFIT]/continuum
+                  - fit[self.IDXTOFIT])**2
+        _resdown = myerr**2
+
+
         # ## ------------------------------------------------------------------------------
         # ## PIC test: Here if is like computign a chi2 (almost), but I would like to
         # ## remove the median to the residuals in each small window (line per line)
@@ -3594,6 +3776,7 @@ class SpectralAnalysis:
         if lnlikeMode=='student_t':
             r2 = _resup
             s2 = _resdown
+            self._res = _resup/_resdown
 
             ## This would be computin the Student t likehood
             ## TODO: check this is correct
@@ -3601,6 +3784,7 @@ class SpectralAnalysis:
             term2 = -0.5 * (np.log(_studentNu * np.pi * s2))
             term3 = -((_studentNu + 1) / 2) * np.log(1 + r2 / (_studentNu * s2))
             outval = np.sum(term1 + term2 + term3)
+            
         else:
             _res = _resup/_resdown
 
@@ -3846,6 +4030,11 @@ class SpectralAnalysis:
         f.close()
 
         coeffs = self.coeffs
+
+        # from IPython import embed;embed();exit()
+        ## If some of the coeffs are exactly 0; that can cause issues.
+        coeffs[coeffs<0.005] =0.005 
+        coeffs[0] = 1-np.sum(coeffs[1:])
         # if len(self.bs)==1:
         #     coeffs = None
         # else:
@@ -3982,7 +4171,7 @@ class SpectralAnalysis:
         ## terminates raising an Exception.
         p0 = []
         i=0; nit=0
-        while (i < self.nwalkers) & (nit<100*self.nwalkers) :
+        while (i < self.nwalkers) & (nit<1000*self.nwalkers) :
             _mylocinitial = np.copy(self.initial)
             ## Those are manipulations on the filling factors
             ## They only make sense if we have more than one.

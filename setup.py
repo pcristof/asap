@@ -86,6 +86,7 @@ setup(
             'asap.pca_compress_zeeturbo_grid='\
             +'asap.scripts.pca_compress_zeeturbo_grid:main',
             'asap.interactive=asap.scripts.interactive:main',
+            'asap.bic_scan=asap.scripts.bic_scan:main',
             # 'asap.run_analysis=asap.scripts.run_analysis:main',  # Command-line utility
         ],
     },

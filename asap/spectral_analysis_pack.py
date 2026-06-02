@@ -252,6 +252,12 @@ def broaden_spectra(args, **kwargs):
         macProf = kwargs['macProf']
     else:
         macProf = 'g'
+
+    if "payneWaveIdx" in kwargs.keys(): 
+        payneWaveIdx = kwargs['payneWaveIdx']
+    else:
+        payneWaveIdx = None
+
     nan_mask = np.copy(mask)
     nan_mask[nan_mask==0] = np.nan
     r = 0 # Dummy solution to estimate wavelength step
@@ -278,7 +284,12 @@ def broaden_spectra(args, **kwargs):
         # if model=='turbospectrum' or model=='turbospectrum_vmic0.3':
         #     _spectra = convolve.convolve(wvls[r], spectrum[r], -np.sqrt(vmac**2))
         # else:
-        _wvls = wvls[r] * doppler_factor
+        if payneWaveIdx is not None:
+            _wvls = wvls[payneWaveIdx[r]] * doppler_factor
+        elif wvls.ndim>1:
+            _wvls = wvls[r] * doppler_factor
+        else:
+            _wvls = wvls * doppler_factor
         # _spectra = effects.broadened_profile(
         #     _wvls, spectrum[r], 
         #     rv=None, epsilon=0.6,
@@ -290,11 +301,20 @@ def broaden_spectra(args, **kwargs):
         #                                     vsini=vsini, epsilon=0.6, 
         #                                     vmac=vmac, vmac_mode=macProf)
         ## Faster with cython:
-        _spectra = effects_cy.broaden_spectrum_2_cy(_wvls, spectrum[r], 
-                                            vinstru=vinstru, 
-                                            vsini=vsini, epsilon=epsilon, 
-                                            vmac=vmac, vmac_mode=macProf)      
-        _wlim = _wvls[spectrum[r]!=0][-1]
+        if payneWaveIdx is not None:
+            _spec = spectrum[payneWaveIdx[r]]
+        elif spectrum.ndim>1:
+            _spec = spectrum[r]
+        else:
+            _spec = spectrum
+        if ((vinstru==0.) & (vsini==0.)) & (vmac==0.):
+            _spectra = _spec
+        else:
+            _spectra = effects_cy.broaden_spectrum_2_cy(_wvls, _spec, 
+                                                vinstru=vinstru, 
+                                                vsini=vsini, epsilon=epsilon, 
+                                                vmac=vmac, vmac_mode=macProf)      
+        _wlim = _wvls[_spec!=0][-1]
         _wlow = _wvls[0]
         
         _wvl = _wvls
