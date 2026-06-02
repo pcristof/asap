@@ -212,8 +212,6 @@ def read_res_v2(filename):
             if line.strip()[0]=='': continue ## Empty line handling
             sl = line.split(':')
             ## Check file consistency
-            print(len(sl))
-            print(sl)
             if len(sl)!=3: raise Exception('Error reading file; '
                                         +'should contain 3 :-seperated columns')
             _type = sl[0].strip(); _var = sl[1].strip(); _value = sl[2].strip()
