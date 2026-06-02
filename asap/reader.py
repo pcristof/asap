@@ -1,3 +1,4 @@
+import numpy as np
 
 def read_res(filename):
     '''This function is designed to parse the results in a typical raw output
