@@ -4031,8 +4031,13 @@ class SpectralAnalysis:
 
         # from IPython import embed;embed();exit()
         ## If some of the coeffs are exactly 0; that can cause issues.
-        coeffs[coeffs<0.005] =0.005 
-        coeffs[0] = 1-np.sum(coeffs[1:])
+        ## This could lead to negative first parameter. Need to revise...
+        # coeffs[coeffs<0.005] = 0.005 
+        # coeffs[0] = 1-np.sum(coeffs[1:])
+        ## The following should avoid this issue...
+        if np.any(coeffs<0.005):
+            coeffs+=0.010
+            coeffs/=np.sum(coeffs)
         # if len(self.bs)==1:
         #     coeffs = None
         # else:
