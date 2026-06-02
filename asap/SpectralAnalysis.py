@@ -4782,9 +4782,9 @@ class SpectralAnalysis:
                             ax.set_ylabel(_labels[i])
                             ax.yaxis.set_label_coords(-0.1, 0.5)
                         axes[-1].set_xlabel("step number");
-                    plt.savefig(self.opath+'samples.pdf')
+                    plt.savefig(self.opath+'samples.png', dpi=600)
                     plt.close()
-                    data['gen_files'].append('samples.pdf')
+                    data['gen_files'].append('samples.png', dpi=600)
 
                 if plottrig:
                     fig, axes = plt.subplots(_ndim, figsize=(6.4, figheightfac*4.8), sharex=True)
