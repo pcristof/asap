@@ -32,42 +32,57 @@ def read_nn_weights(nnpath, nn_type="LinNet"):
 
         for k in keys_W:
             # W.append(f[k][()])
-            W.append(np.ascontiguousarray(f[k][()], dtype=np.float64))
+            W.append(np.ascontiguousarray(f[k][()], dtype=np.float32))
 
         for k in keys_b:
             # b.append(f[k][()])
-            b.append(np.ascontiguousarray(f[k][()], dtype=np.float64))
+            b.append(np.ascontiguousarray(f[k][()], dtype=np.float32))
 
         f.close()
 
     return wavelength, W, b
 
-def eval_nn(x, W, b):
+def eval_nn__(x, W, b):
     h = np.asarray(x, dtype=np.float64)
 
     # from IPython import embed;embed();exit()
 
     # hidden layers
-    for W, b in zip(W[:-1], b[:-1]):
-        h = h @ W.T + b   # BLAS GEMM
+    for Wi, bi in zip(W[:-1], b[:-1]):
+        h = h @ Wi.T + bi   # BLAS GEMM
 
     # output layer
-    W, b = W[-1], b[-1]
-    out = h @ W.T + b
+    # W, b = W[-1], b[-1]
+    out = h @ W[-1].T + b[-1]
 
     return out
 
 
-def make_nn(W_list, b_list):
-    Ws = tuple(W_list)
-    bs = tuple(b_list)
+
+def sigmoid(x):
+    return 1.0 / (1.0 + np.exp(-x))
+
+def eval_nn(x, W, b):
+    h = np.asarray(x, dtype=np.float32)
+
+    for Wi, bi in zip(W[:-1], b[:-1]):
+        h = sigmoid(h @ Wi.T + bi)
+
+    Wl, bl = W[-1], b[-1]
+    out = h @ Wl.T + bl
+
+    return out
+
+def make_nn(W, b):
 
     def eval_nn(x):
-        h = np.asarray(x, dtype=np.float64)
+        h = np.asarray(x, dtype=np.float32)
 
-        for Wi, bi in zip(Ws[:-1], bs[:-1]):
-            h = h @ Wi.T + bi
+        for Wi, bi in zip(W[:-1], b[:-1]):
+            h = sigmoid(h @ Wi.T + bi)
 
-        return h @ Ws[-1].T + bs[-1]
+        Wl, bl = W[-1], b[-1]
+        out = h @ Wl.T + bl
+        return out
 
     return eval_nn
