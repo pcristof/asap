@@ -331,6 +331,7 @@ class SpectralAnalysis:
         self.file_struc = '{}g{:0.1f}z{:0.2f}a{:.2f}b{:04.0f}p{:0.1f}rot{:0.2f}beta{:0.2f}.hdf5'
         self.latex = False
         self.instrument = 'spirou'
+        self.fitTeff2 = False
         self.AVAILABLE_PARAMS = ['a0', 'a2', 'a4', 'a6', 'a8', 'a10',
                                  'teff', 'logg', 'mh', 'alpha', 
                                  'vb', 'rv', 'vsini', 'vmac', 
@@ -1259,6 +1260,45 @@ class SpectralAnalysis:
                 self.set_rL(attributes[key])
             elif key=='veilingFac':
                 self.set_veilingFac(attributes[key])
+    
+    def init_from_results(self, results_file):
+        ## This function is NOT finished yet.
+        ## This function initilizes the object from a results file
+        ## in the v2 format.
+        ## TODO: finish this implementation
+        res = read_res_v2(results_file)
+        self.set_teff(res['teff'])
+        self.set_logg(res['logg'])
+        self.set_mh(res['mh'])
+        self.set_alpha(res['afe'])
+        self.update_bs(res['mag_components'])
+        self.update_fillFactors(res['mag_ff'])
+        self.set_guessRV(res['guess_rv'])
+        self.set_rv(res['rv'])
+        self.set_vsini(res['vsini'])
+        self.set_vmac(res['vmac'])
+        self.set_vmacMode(res['vmac_mode'])
+        self.set_instrument(res['input_instrument'])
+        ## For now I ignore the vielling factors
+        self.update_teffs(res['input_teffArray'])
+        self.update_loggs(res['input_loggArray'])
+        self.update_mhs(res['input_mhArray'])
+        self.update_alphas(res['input_alphaArray'])
+        self.set_pathtogrid(res['input_pathToGrid'])
+        self.set_pathtodata(res['input_pathToData'])
+        self.set_linelist(res['input_lineListFile'])
+        self.set_adjcont(res['input_adjCont'])
+        self.set_star(res['star'])
+
+        ## For now I also ignore other things...
+        self.set_fitrot(bool(res['input_fitRot']))
+        self.set_fitmac(bool(res['input_fitMac']))
+        self.set_fitFields(bool(res['input_fitFields']))
+        self.set_fitrv(bool(res['input_fitRV']))
+        self.set_fitTeff(bool(res['input_fitTeff']))
+        self.set_fitLogg(bool(res['input_fitLogg']))
+        self.set_fitMh(bool(res['input_fitMh']))
+        self.set_fitAlpha(bool(res['input_fitAlpha']))
 
     #####################################
     #### ---- LOAD OBSERVATIONS ---- ####
@@ -1745,51 +1785,116 @@ class SpectralAnalysis:
         return nwvls, self.grid_n, self.teffs, self.loggs, self.mhs, self.alphas
 
     def load_thepayne(self, pathtogrid, grid_data, regions):
+        ## DRAFT FUNCTION
+        ## TODO: finish and test implementation
+        ## Function to load the data from an emulator
+        ## CONTEXT: we are trying to build emulators of magnetic spectra.
+        ## I want to see if I could use these emulated spectra to obtain
+        ## faster runs.
+        
+        ## define a disk integration mode that is going to set the
+        ## function used to generate spectra.
         self.diskIntegrationMode = 3
         from Payne.predict import predictspec
         from Payne.utils.smoothing import smoothspec
-        ## Predictor
+
+        ## Predictor ! we actually will not be using the predictor
         filename = pathtogrid+'modV0_spec_LinNet_R23K_WL450_672.h5'
         with h5py.File(filename, 'r') as f:
             payneNormFactor = f['normFactor'][()]
         pp = predictspec.PayneSpecPredict(filename)
 
+        ## Created a new module
         from asap import nn_tools as nn_tools
         wave, W, b = nn_tools.read_nn_weights(filename) 
 
+        ## Variables associated with the emulator
         self.payneNormFactor = payneNormFactor
         self.grid_n = None
         self.nwvls = wave
         self.d7 = len(wave)
         self.d6 = 1
+        emulator_nb_pixels = len(wave)
 
         self.payneWeights = W
         self.payneBias = b
 
+        ## EXPLANATION:
+        ## One of the issue to actually compare the speeds is that I am
+        ## assuming here a neural network that generates the full spectrum
+        ## We have to 1) trim the output (to avoid unecessary computations)
+        ## and 2) reshape the output so that it's compatible with the 
+        ## rest of the code.
+
+        self.payneWaveIdx = np.zeros((len(regions), len(wave)), dtype=bool)
+        lenRegionPixel = 0
+
+        nb_regions = len(regions)
+
+        bool_mask = np.zeros(emulator_nb_pixels, dtype=bool)
+        regions_idx_length = np.zeros((nb_regions, 2))
+        for r in range(nb_regions):
+            reg = regions[r]
+            idx = np.where((wave>reg[0]) & (wave<reg[1]))
+            ## TODO: add safeguards
+            reg_first_bin = idx[0][0]
+            reg_length = len(idx[0])
+            regions_idx_length[r] = [reg_first_bin, reg_length]
+            bool_mask[idx] = True
+    
+        idx_valid = np.where(bool_mask)
+        self.payne_regions_idx_length = regions_idx_length
+
+        ## But wait, we do not have to pass the indices everytime...
+        ## we can just trim the data here...
+        W[-1] = W[-1][bool_mask]
+        b[-1] = b[-1][bool_mask]
+        wave  = wave[bool_mask]
+
+        regions_idx_length = np.zeros((nb_regions, 2))
+        for r in range(nb_regions):
+            reg = regions[r]
+            idx = np.where((wave>=reg[0]) & (wave<=reg[1]))
+            ## TODO: add safeguards
+            reg_first_bin = idx[0][0]
+            reg_length = len(idx[0])
+            regions_idx_length[r] = [reg_first_bin, reg_length]
+
+        self.payne_regions_idx_length = regions_idx_length
+
+
+        # self.payne_bool_mask = idx_mask
         self.payneWaveIdx = np.zeros((len(regions), len(wave)), dtype=bool)
         for r in range(len(regions)):
             reg = regions[r]
             self.payneWaveIdx[r] = (wave>reg[0]) & (wave<reg[1]) 
+            _lenRegionPixel = len(self.payneWaveIdx[r][self.payneWaveIdx[r]])
+            if _lenRegionPixel>lenRegionPixel:
+                lenRegionPixel = _lenRegionPixel
+        
+        nwvls = np.zeros((len(regions), lenRegionPixel), dtype=np.float32)*np.nan
+        for r in range(len(regions)):
+            _nwvl = wave[self.payneWaveIdx[r]]
+            _nb_pixels = len(_nwvl)
+            nwvls[r, :_nb_pixels] = _nwvl
 
-        return wave
-        # ## Wavelength used (this is the wavlength passed to the TrainMod function in
-        # ## the runtrain_v128.py).
-        # wave = pp.anns.wavelength
-        # self.pp = pp
-        # self.payneNormFactor = payneNormFactor
-        # self.grid_n = None
-        # self.nwvls = wave
-        # self.d7 = len(wave)
-        # self.d6 = 1
-        # self.payneWaveIdx = np.zeros((len(regions), len(wave)), dtype=bool)
-        # for r in range(len(regions)):
-        #     reg = regions[r]
-        #     self.payneWaveIdx[r] = (wave>reg[0]) & (wave<reg[1]) 
-        # return wave
+        ## Remove NaNs
+        for r in range(len(regions)):
+            first_nan = np.where(np.isnan(nwvls[r]))[0]
+            if len(first_nan)>0:
+                n = first_nan[0]
+                while n < (len(nwvls[r])-1):
+                    nwvls[r][n] = nwvls[r][n-1]+0.01
+                    n+=1
+        
+        ## But we are going to compute things without loops.
 
-    def thepayne_eval(self, pars, W, b):
-        output = nn_tools.eval_nn(pars, W, b)
-        return output
+        self.nwvls = nwvls
+        self.payneWave = wave
+
+        self.thepayne_eval = nn_tools.make_nn(W, b)
+
+        return nwvls
 
     def load_zeeturbo_mu(self, pathtogrid, grid_data, regions):
         self.diskIntegrationMode = 1
@@ -2636,13 +2741,42 @@ class SpectralAnalysis:
         dopshift = tls.doppler(rv)
         _Bspec = np.zeros((self.d5, self.d6, self.d7))
         
+        ###################################################################### 
+        ###################################################################### 
+        ## DEBUGGING AND TESTING BLOCK
         # from IPython import embed; embed();exit()
+        # ## I need to map intelligently the wavelengths
+        
+        # import time
+        # itime = time.time()
+        # i = 0
+        # pars = [np.log10(T), L, M, A, 1.0, self.bs[i]]
+        # mat = np.zeros(nwvls.shape, dtype=np.float32)*np.nan
+        # for j in range(10000):
+        #     s = self.thepayne_eval(pars)
+        #     # s = self.thepayne_eval(pars, self.payneWeights, self.payneBias)
+
+        # ## Reindex ## And this is not even optimized
+        # idpl = np.array(self.payne_regions_idx_length, dtype=int)
+        # for r in range(len(nwvls)):
+        #     mat[r][:idpl[r][1]] = s[idpl[r][0]:idpl[r][0]+idpl[r][1]]
+        # etime = time.time()
+        # print(etime-itime)
+        ###################################################################### 
+        ###################################################################### 
 
         for i in range(self.d5):
             try:
                 pars = [np.log10(T), L, M, A, 1.0, self.bs[i]]
                 # s = self.pp.predictspec(pars)
-                s = self.thepayne_eval(pars, self.payneWeights, self.payneBias)
+                s = self.thepayne_eval(pars)
+                ## Reindex ## And this is not even optimized
+                ## TODO: optimize the following
+                mat = np.zeros(nwvls.shape, dtype=np.float32)*np.nan
+                idpl = np.array(self.payne_regions_idx_length, dtype=int)
+                for r in range(len(nwvls)):
+                    mat[r][:idpl[r][1]] = s[idpl[r][0]:idpl[r][0]+idpl[r][1]]
+                s = mat
                 # _, s = wrap_interpolate_4d_c(
                 #                                     T, L, M, A,
                 #                                     teffs, loggs, mhs, alphas,
@@ -2694,8 +2828,9 @@ class SpectralAnalysis:
                 0, 0, 0, '0', self.adjcont, 'line']
         ## fit is the model after broadening and adjustment
         _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
-                                                        macProf=self.vmacMode,
-                                                payneWaveIdx=self.payneWaveIdx)
+                                                        macProf=self.vmacMode)
+                                                #         ,
+                                                # payneWaveIdx=self.payneWaveIdx)
 
         # ## Here we determine the correct veiling
         ## Here I forbid the veiling from the other bands to compensate for the veiling
@@ -3455,7 +3590,7 @@ class SpectralAnalysis:
             _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
             vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
             coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
-            _studentNu = self._studentNu
+            _studentNu = self.studentNu
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
                _T2, _fillTeffs, _studentNu = self.unpackpar(par)
@@ -3673,7 +3808,8 @@ class SpectralAnalysis:
         if par is None:
             _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
             vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
-            coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
+            coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; 
+            _fillTeffs = self.fillTeffs; _studentNu = self.studentNu
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
                _T2, _fillTeffs, _studentNu = self.unpackpar(par)
@@ -3845,7 +3981,7 @@ class SpectralAnalysis:
 
         return theta
 
-    def lnprob(self, par):
+    def lnprob(self, par=None):
         lp = self.lnprior(par)
         return lp + self.lnlike(par)
 
