@@ -209,9 +209,9 @@ class SpectralAnalysis:
     def __init__(self, **kargs):
         self.studentNu = 1 ## student-t degrees of freedom
         self.fitStudentNu = False ## Whether we fit the student
-        self.lnlikeMode = 'gaussian'
-        self.samplerType = 'MCMC'
-        self.runTime = 0.
+        self.lnlike_mode = 'gaussian'
+        self.sampler_type = 'MCMC'
+        self.run_time = 0.
         self.input_filename = None
         self.message = "Output message to the user\n"
         self.dynesty = False
@@ -1033,8 +1033,8 @@ class SpectralAnalysis:
             print("logcoeffs is currently set to {}.".format(self.logCoeffs))
         else:
             self.logCoeffs = trig
-    def set_samplerType(self, samplerType):
-        self.samplerType = samplerType
+    def set_sampler_type(self, sampler_type):
+        self.sampler_type = sampler_type
     def set_nwalkers(self, nwalkers):
         self.nwalkers = nwalkers
         return self.nwalkers
@@ -1222,7 +1222,7 @@ class SpectralAnalysis:
         Gaussian likelihood.'''
         if val:
             self.fitStudentNu = True 
-            self.lnlikeMode = 'student_t'
+            self.lnlike_mode = 'student_t'
     ## We want a constructor capable of setting the attributes of the
     ## object from a results file.
     def set_from_file(self, filename):
@@ -2829,8 +2829,6 @@ class SpectralAnalysis:
         ## fit is the model after broadening and adjustment
         _, _, _, fit, _, _, [cs, cs2], _, _ = broaden_spectra(args, 
                                                         macProf=self.vmacMode)
-                                                #         ,
-                                                # payneWaveIdx=self.payneWaveIdx)
 
         # ## Here we determine the correct veiling
         ## Here I forbid the veiling from the other bands to compensate for the veiling
@@ -3579,7 +3577,7 @@ class SpectralAnalysis:
             gg.write("{} {}\n".format(star, val))
         gg.close()
 
-    def lnlike(self, par=None, lnlikeMode=None):
+    def lnlike(self, par=None, lnlike_mode=None):
         '''This function returns should return 
         something that looks like a chi2.
         Inputs:
@@ -3595,8 +3593,8 @@ class SpectralAnalysis:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
                _T2, _fillTeffs, _studentNu = self.unpackpar(par)
 
-        if lnlikeMode is None:
-            lnlikeMode = self.lnlikeMode
+        if lnlike_mode is None:
+            lnlike_mode = self.lnlike_mode
 
         # ##################
         # ##################
@@ -3749,7 +3747,7 @@ class SpectralAnalysis:
 
         # _resdown[idxout] = _resdown[idxout]*1e5 ## Lower the weight on those points
 
-        if lnlikeMode=='student_t':
+        if lnlike_mode=='student_t':
             r2 = _resup
             s2 = _resdown
             self._res = _resup/_resdown
@@ -5075,7 +5073,7 @@ class SpectralAnalysis:
                 elif _var=='veiling_bands': 
                     resdict['veiling_bands']=self.veilingBands
                 elif _var=='lnlike_mode':
-                    resdict['lnlike_mode']=self.lnlikeMode
+                    resdict['lnlike_mode']=self.lnlike_mode
 
         self.floatResultsPrecision = 4
         RP = self.floatResultsPrecision ## results precision
@@ -5085,7 +5083,7 @@ class SpectralAnalysis:
         ## Now I want to add some metadata to the file.
         from datetime import datetime
         resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss")
-        resdict['run_time'] = self.runTime
+        resdict['run_time'] = self.run_time
         resdict['star'] = self.star
         resdict['lnlike_max'] = maxLnLikelihood
         resdict['bic'] = bic
@@ -5178,7 +5176,7 @@ class SpectralAnalysis:
 
 
     def _compute_ssamples(self):
-        if self.samplerType=='MCMC':
+        if self.sampler_type=='MCMC':
             if self.logCoeffs:
                 samples[:,:,:len(self.bs)-1] = np.exp(samples[:,:,:len(self.bs)-1])
             np.save(self.opath+"samples", samples)
@@ -5217,7 +5215,7 @@ class SpectralAnalysis:
             nbofvals2 = len(idx50[0])
             log_prob_walkers = np.concatenate(log_prob_walkers_noflat, -1)
 
-        elif self.samplerType=='ULTRANEST':
+        elif self.sampler_type=='ULTRANEST':
             ssamples = self.sampler.results['samples']
             logl = [self.lnlike(theta) for theta in ssamples]
             log_prob_walkers = np.array(logl)
@@ -5985,7 +5983,7 @@ class SpectralAnalysis:
         ## Now I want to add some metadata to the file.
         from datetime import datetime
         resdict['datetime'] = datetime.now().strftime("%Y-%m-%d %Hh%Mm%Ss")
-        resdict['run_time'] = self.runTime
+        resdict['run_time'] = self.run_time
         resdict['star'] = self.star
         resdict['lnlike_max'] = maxLnLikelihood
         resdict['bic'] = bic

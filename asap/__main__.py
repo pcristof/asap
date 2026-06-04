@@ -282,7 +282,7 @@ if mpi_rank == 0:
     print('CONFIG READ')
 
 ## Update the sampling method in the object to keep track of it
-SA.set_samplerType(sampler_type.upper())
+SA.set_sampler_type(sampler_type.upper())
 
 
 labels = SA.return_labels()
@@ -872,7 +872,7 @@ else:
 
 # --- Phase 3: Extract results ---
 print("Time = {:.2f} seconds".format(etime - itime))
-SA.runTime = etime - itime
+SA.run_time = etime - itime
 f = open(opath+'time.txt', 'w')
 f.write("Initial guess: " + str(initial) + " \n")
 f.write("Time = {:.2f} seconds\n".format(etime - itime))
