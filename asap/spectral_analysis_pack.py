@@ -314,6 +314,10 @@ def broaden_spectra(args, **kwargs):
                                                 vinstru=vinstru, 
                                                 vsini=vsini, epsilon=epsilon, 
                                                 vmac=vmac, vmac_mode=macProf)      
+        ## I probably do not have to do this within the MCMC logic. This
+        ## should probably remain the same throughout the process so should
+        ## be a single mask to apply? The problems do arise with interpolations
+        ## though...
         _wlim = _wvls[_spec!=0][-1]
         _wlow = _wvls[0]
         

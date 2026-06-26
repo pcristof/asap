@@ -207,8 +207,8 @@ class SpectralAnalysis:
     can be changed using the update functions.'''
 
     def __init__(self, **kargs):
-        self.studentNu = 1 ## student-t degrees of freedom
-        self.fitStudentNu = False ## Whether we fit the student
+        self.student_nu = 1 ## student-t degrees of freedom
+        self.fit_student_nu = False ## Whether we fit the student
         self.lnlike_mode = 'gaussian'
         self.sampler_type = 'MCMC'
         self.run_time = 0.
@@ -920,7 +920,7 @@ class SpectralAnalysis:
             ## Since it is derived from the first.
             # PARAMS_FIT.append('fillteff_0')
             PARAMS_FIT.append('fillteff_1')
-        if self.fitStudentNu:
+        if self.fit_student_nu:
             PARAMS_FIT.append('student_t_dof')
         AVAILABLE_PARAMS.append('student_t_dof')
         self.AVAILABLE_PARAMS = AVAILABLE_PARAMS
@@ -932,7 +932,7 @@ class SpectralAnalysis:
         list_of_params_raw=[self.coeffs, [self._T], [self._L], [self._M], [self._A], 
                         [self.vb], [self.rv], [self.vsini], [self.vmac],
                         self.veilingFac, [self._T2], self.fillTeffs, 
-                        [self.studentNu]]
+                        [self.student_nu]]
         list_of_params = []
         for element in list_of_params_raw:
             for subelement in element:
@@ -1221,7 +1221,7 @@ class SpectralAnalysis:
         '''Sets whether we use the student-t likelihood or the usual
         Gaussian likelihood.'''
         if val:
-            self.fitStudentNu = True 
+            self.fit_student_nu = True 
             self.lnlike_mode = 'student_t'
     ## We want a constructor capable of setting the attributes of the
     ## object from a results file.
@@ -1806,14 +1806,16 @@ class SpectralAnalysis:
 
         ## Created a new module
         from asap import nn_tools as nn_tools
-        wave, W, b = nn_tools.read_nn_weights(filename) 
+        wave, W, b, xmin, xmax = nn_tools.read_nn_weights(filename) 
+
+        wave = tls.convert_lambda_in_vacuum(wave)
 
         ## Variables associated with the emulator
         self.payneNormFactor = payneNormFactor
         self.grid_n = None
-        self.nwvls = wave
-        self.d7 = len(wave)
-        self.d6 = 1
+        #self.nwvls = wave
+        #self.d7 = len(wave)
+        #self.d6 = 1
         emulator_nb_pixels = len(wave)
 
         self.payneWeights = W
@@ -1883,16 +1885,17 @@ class SpectralAnalysis:
             first_nan = np.where(np.isnan(nwvls[r]))[0]
             if len(first_nan)>0:
                 n = first_nan[0]
-                while n < (len(nwvls[r])-1):
+                while n < (len(nwvls[r])):
                     nwvls[r][n] = nwvls[r][n-1]+0.01
                     n+=1
         
         ## But we are going to compute things without loops.
 
-        self.nwvls = nwvls
+        self.nwvls = np.array(nwvls, dtype=float)
+        self.d7 = len(nwvls[0])
         self.payneWave = wave
 
-        self.thepayne_eval = nn_tools.make_nn(W, b)
+        self.thepayne_eval = nn_tools.make_nn(W, b, xmin, xmax)
 
         return nwvls
 
@@ -2765,6 +2768,8 @@ class SpectralAnalysis:
         ###################################################################### 
         ###################################################################### 
 
+        # from IPython import embed;embed();exit()
+
         for i in range(self.d5):
             try:
                 pars = [np.log10(T), L, M, A, 1.0, self.bs[i]]
@@ -2772,7 +2777,7 @@ class SpectralAnalysis:
                 s = self.thepayne_eval(pars)
                 ## Reindex ## And this is not even optimized
                 ## TODO: optimize the following
-                mat = np.zeros(nwvls.shape, dtype=np.float32)*np.nan
+                mat = np.zeros(nwvls.shape, dtype=np.float32)
                 idpl = np.array(self.payne_regions_idx_length, dtype=int)
                 for r in range(len(nwvls)):
                     mat[r][:idpl[r][1]] = s[idpl[r][0]:idpl[r][0]+idpl[r][1]]
@@ -2820,8 +2825,6 @@ class SpectralAnalysis:
 
         ## Here we determine the correct veiling
         # myveiling = veiling_function(veilingFac, nwvls_shift)
-        
-        mergedspec = mergedspec[0]
 
         args = [0, nwvls_shift, mergedspec, obs_wvl, obs_flux, obs_err, 
                 nan_mask, totvb, vmac, vsini, 
@@ -3397,7 +3400,7 @@ class SpectralAnalysis:
             i += 1
             labels.append(r"$f_{T_{\rm eff, 2}}$")
             i += 1
-        if self.fitStudentNu: ## We are fitting the student distribution DOF
+        if self.fit_student_nu: ## We are fitting the student distribution DOF
             labels.append(r'$\nu$')
             i += 1
         self.labels =labels
@@ -3419,7 +3422,7 @@ class SpectralAnalysis:
         _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
         veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
         coeffs = self.coeffs
-        self._studentNu = self.studentNu
+        self._student_nu = self.student_nu
 
         ## Run through conditions
         nbOfFields = len(self.bs) ## This will helps us unpack par
@@ -3488,8 +3491,8 @@ class SpectralAnalysis:
             _fillTeffs2 = par[i]
             _fillTeffs = np.array([1-_fillTeffs2, _fillTeffs2])
             i += 1
-        if self.fitStudentNu:
-            self._studentNu = par[i]
+        if self.fit_student_nu:
+            self._student_nu = par[i]
             i+=1
         ## Special case: if we have set the autoLogg
         if self.autoLogg:
@@ -3497,7 +3500,7 @@ class SpectralAnalysis:
         ## Sanity check for debugging; i should be the same as len(par)
         if len(par)!=i:
             raise Exception('ERROR in unpackpar --> contact author')
-        return coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, _T2, _fillTeffs, self._studentNu
+        return coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, _T2, _fillTeffs, self._student_nu
 
     def compute_normFactor(self, normFactor=None):
         '''Function computing the normalization factor
@@ -3588,10 +3591,10 @@ class SpectralAnalysis:
             _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
             vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
             coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; _fillTeffs = self.fillTeffs
-            _studentNu = self.studentNu
+            _student_nu = self.student_nu
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
-               _T2, _fillTeffs, _studentNu = self.unpackpar(par)
+               _T2, _fillTeffs, _student_nu = self.unpackpar(par)
 
         if lnlike_mode is None:
             lnlike_mode = self.lnlike_mode
@@ -3754,9 +3757,9 @@ class SpectralAnalysis:
 
             ## This would be computin the Student t likehood
             ## TODO: check this is correct
-            term1 = gammaln((_studentNu + 1) / 2) - gammaln(_studentNu / 2)
-            term2 = -0.5 * (np.log(_studentNu * np.pi * s2))
-            term3 = -((_studentNu + 1) / 2) * np.log(1 + r2 / (_studentNu * s2))
+            term1 = gammaln((_student_nu + 1) / 2) - gammaln(_student_nu / 2)
+            term2 = -0.5 * (np.log(_student_nu * np.pi * s2))
+            term3 = -((_student_nu + 1) / 2) * np.log(1 + r2 / (_student_nu * s2))
             outval = np.sum(term1 + term2 + term3)
             
         else:
@@ -3807,10 +3810,10 @@ class SpectralAnalysis:
             _T = self._T; _T2 = self._T2; _L = self._L; _M = self._M; _A = self._A
             vb = self.vb; rv = self.rv; vsini = self.vsini; vmac = self.vmac
             coeffs = self.coeffs; veilingFacToFit = self.veilingFacToFit; 
-            _fillTeffs = self.fillTeffs; _studentNu = self.studentNu
+            _fillTeffs = self.fillTeffs; _student_nu = self.student_nu
         else:
             coeffs, _T, _L, _M, _A, vb, rv, vsini, vmac, veilingFacToFit, \
-               _T2, _fillTeffs, _studentNu = self.unpackpar(par)
+               _T2, _fillTeffs, _student_nu = self.unpackpar(par)
 
         # if np.isnan(coeffs[0]):
         #     # print('NaN in coeffs[0]')
@@ -3830,7 +3833,7 @@ class SpectralAnalysis:
             return -np.inf
         if (_A<self.alphas[0]) | (_A>self.alphas[-1]):
             return -np.inf
-        if (_studentNu<0) | (_studentNu>100):
+        if (_student_nu<0) | (_student_nu>100):
             return -np.inf
 
         ## Apply priors to forbid negative vsini, vmac and vb values.
@@ -4094,8 +4097,8 @@ class SpectralAnalysis:
         if self.fitTeff2:
             initial = np.append(initial, _T2)
             initial = np.append(initial, fillTeffs[1]) ## We only fit the second component and deduce the first one
-        if self.fitStudentNu:
-            initial = np.append(initial, self.studentNu)
+        if self.fit_student_nu:
+            initial = np.append(initial, self.student_nu)
         self.initial = initial
         self._T = _T; self._T2 = _T2; self._L = _L; self._M = _M; self._A = _A
         # if coeffs is None: ## It should never be None now
