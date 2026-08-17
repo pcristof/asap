@@ -196,11 +196,12 @@ if args.simbad:
     for _i, _name in enumerate(possible_names):
         try: output = simbad_tools.query_simbad(_name);
         except: output = None; success=False
-        if np.all(np.isnan(output)) & _i<len(possible_names):
-            success = False
-        else:
-            success = True
-        if success: break;
+        if output is not None:
+            if np.all(np.isnan(output)) & _i<len(possible_names):
+                success = False
+            else:
+                success = True
+            if success: break;
     if output is not None:
         if np.any(~np.isnan(output)):
             print("Using Simbad values as a starting point:")
