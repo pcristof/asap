@@ -188,8 +188,8 @@ SA.set_star(star) ## Dummy variable to identify the star
 #SA.simbad_grep()
 SA.read_config(config_file_copy)
 ## Here I want to add an initial guess based on simbad for the temperature and log(g) of the star
+simbad_values = False
 if args.simbad:
-    simbad_values = False
     from asap import simbad_tools as simbad_tools
     possible_names = simbad_tools.guess_star_name(SA.star)
     success=False
