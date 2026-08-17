@@ -189,6 +189,7 @@ SA.set_star(star) ## Dummy variable to identify the star
 SA.read_config(config_file_copy)
 ## Here I want to add an initial guess based on simbad for the temperature and log(g) of the star
 if args.simbad:
+    simbad_values = False
     from asap import simbad_tools as simbad_tools
     possible_names = simbad_tools.guess_star_name(SA.star)
     success=False
@@ -218,6 +219,13 @@ if args.simbad:
             elif SA.fitmac:
                 SA.set_vmac(output[3])
                 print(f"vmac: {SA.vsini}")
+        simbad_values = True
+## Now update the boundaries:
+if simbad_values:
+    SA.update_teffs(SA.teffs[(SA.teffs>SA._T-1000) & (SA.teffs<SA._T+1000)])
+    SA.update_loggs(SA.loggs[(SA.loggs>SA._L-1.0)&(SA.loggs<SA._L+1.0)])
+    SA.update_mhs(SA.mhs[(SA.mhs>SA._M-1.0)&(SA.mhs<SA._M+1.0)])
+    SA.update_alphas(SA.alphas[(SA.alphas>SA._A-1.0)&(SA.alphas<SA._A+1.0)])
 
 SA.set_student(args.student) ## Must happen before SA.init_PARAMS
 
