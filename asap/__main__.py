@@ -195,31 +195,32 @@ if args.simbad:
     success=False
     for _i, _name in enumerate(possible_names):
         try: output = simbad_tools.query_simbad(_name);
-        except: success=False
+        except: output = None; success=False
         if np.all(np.isnan(output)) & _i<len(possible_names):
             success = False
         else:
             success = True
         if success: break;
-    if np.any(~np.isnan(output)):
-        print("Using Simbad values as a starting point:")
-        if ~np.isnan(output[0]):
-            SA.set_teff(output[0])
-            print(f"Teff: {SA._T}")
-        if ~np.isnan(output[1]):
-            SA.set_logg(output[1])
-            print(f"log(g): {SA._L}")
-        if ~np.isnan(output[2]):
-            SA.set_mh(output[2])
-            print(f"[M/H]: {SA._M}")
-        if ~np.isnan(output[3]):
-            if SA.fitrot:
-                SA.set_vsini(output[3])
-                print(f"vsin(i): {SA.vsini}")
-            elif SA.fitmac:
-                SA.set_vmac(output[3])
-                print(f"vmac: {SA.vsini}")
-        simbad_values = True
+    if output is not None:
+        if np.any(~np.isnan(output)):
+            print("Using Simbad values as a starting point:")
+            if ~np.isnan(output[0]):
+                SA.set_teff(output[0])
+                print(f"Teff: {SA._T}")
+            if ~np.isnan(output[1]):
+                SA.set_logg(output[1])
+                print(f"log(g): {SA._L}")
+            if ~np.isnan(output[2]):
+                SA.set_mh(output[2])
+                print(f"[M/H]: {SA._M}")
+            if ~np.isnan(output[3]):
+                if SA.fitrot:
+                    SA.set_vsini(output[3])
+                    print(f"vsin(i): {SA.vsini}")
+                elif SA.fitmac:
+                    SA.set_vmac(output[3])
+                    print(f"vmac: {SA.vsini}")
+            simbad_values = True
 ## Now update the boundaries:
 if simbad_values:
     SA.update_teffs(SA.teffs[(SA.teffs>SA._T-1000) & (SA.teffs<SA._T+1000)])
