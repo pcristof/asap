@@ -207,6 +207,7 @@ class SpectralAnalysis:
     can be changed using the update functions.'''
 
     def __init__(self, **kargs):
+        self.s_list = None
         self.student_nu = 1 ## student-t degrees of freedom
         self.fit_student_nu = False ## Whether we fit the student
         self.lnlike_mode = 'gaussian'
@@ -1807,8 +1808,20 @@ class SpectralAnalysis:
         ## Created a new module
         from asap import nn_tools as nn_tools
         wave, W, b, xmin, xmax = nn_tools.read_nn_weights(filename) 
+        origin_file = pathtogrid+'spectra_pca_grid_no_mu.h5'
+        with h5py.File(origin_file, 'r') as f:
+            wave_nn = f['wave'][()] ## Grab the actual wavelength
+            pca_basis = f['basis'][()] ## But also the basis for the reconstruction
+            pca_mean = f['mean_spectrum'][()]
+            pca_coeffs = f['coeffs'][()]
+            # params = [f['logt'][()], f['logg'][()], f['feh'][()], f['afe'][()], 
+                    # [1.0], f['bval'][()], f['mu'][()]]
 
-        wave = tls.convert_lambda_in_vacuum(wave)
+        wave = tls.convert_lambda_in_vacuum(wave_nn)
+        # # self.wave_nn = wave
+        # self.pca_basis = pca_basis
+        # self.pca_coeffs = pca_coeffs
+        # self.wave_nn = wave_nn
 
         ## Variables associated with the emulator
         self.payneNormFactor = payneNormFactor
@@ -1827,7 +1840,7 @@ class SpectralAnalysis:
         ## We have to 1) trim the output (to avoid unecessary computations)
         ## and 2) reshape the output so that it's compatible with the 
         ## rest of the code.
-
+        # from IPython import embed;embed()
         self.payneWaveIdx = np.zeros((len(regions), len(wave)), dtype=bool)
         lenRegionPixel = 0
 
@@ -1847,11 +1860,18 @@ class SpectralAnalysis:
         idx_valid = np.where(bool_mask)
         self.payne_regions_idx_length = regions_idx_length
 
+        # self.eval_nn_batch_pca = nn_tools.make_nn_batched_pca(W, b, xmin, xmax, pca_basis[:,bool_mask], pca_mean[bool_mask]) 
+        # wave = wave[bool_mask]
+
+        from IPython import embed;embed()
+
         ## But wait, we do not have to pass the indices everytime...
         ## we can just trim the data here...
         W[-1] = W[-1][bool_mask]
         b[-1] = b[-1][bool_mask]
         wave  = wave[bool_mask]
+        self.eval_nn_batch_pca = nn_tools.make_nn_batched(W, b, xmin, xmax)         
+
 
         regions_idx_length = np.zeros((nb_regions, 2))
         for r in range(nb_regions):
@@ -1895,7 +1915,7 @@ class SpectralAnalysis:
         self.d7 = len(nwvls[0])
         self.payneWave = wave
 
-        self.thepayne_eval = nn_tools.make_nn(W, b, xmin, xmax)
+        # self.thepayne_eval = nn_tools.make_nn(W, b, xmin, xmax)
 
         return nwvls
 
@@ -2724,11 +2744,10 @@ class SpectralAnalysis:
         if self.diskIntegrationMode==1: fit_v = self.gen_spec_mu(*args)
         elif self.diskIntegrationMode==0: fit_v = self.gen_spec_int_spectra(*args)
         elif self.diskIntegrationMode==2: fit_v = self.gen_spec_int_pca(*args)
-        elif self.diskIntegrationMode==3: fit_v = self.gen_spec_NN(*args)
+        elif self.diskIntegrationMode==3: fit_v = self.gen_spec_NN_pca(*args)
         return fit_v
-
     
-    def gen_spec_NN(self, obs_wvl, obs_flux, obs_err, nan_mask, nwvls, grid_n, 
+    def gen_spec_NN_pca(self, obs_wvl, obs_flux, obs_err, nan_mask, nwvls, grid_n, 
              coeffs, T, L, M, A,
              teffs, loggs, mhs, alphas, vb=None, rv=None,  
              vsini=None, vmac=None, veilingFacToFit=None,
@@ -2743,7 +2762,7 @@ class SpectralAnalysis:
         ## Determine the radial velocity shift
         dopshift = tls.doppler(rv)
         _Bspec = np.zeros((self.d5, self.d6, self.d7))
-        
+
         ###################################################################### 
         ###################################################################### 
         ## DEBUGGING AND TESTING BLOCK
@@ -2769,26 +2788,37 @@ class SpectralAnalysis:
         ###################################################################### 
 
         # from IPython import embed;embed();exit()
+        pars_list = []
+        for i in range(self.d5):
+            pars = [np.log10(T), L, M, A, 1.0, self.bs[i]]
+            pars_list.append(np.array(pars, dtype='float32'))
+
+        s_list = self.eval_nn_batch_pca(pars_list)
+
+
+        # from IPython import embed;embed()
 
         for i in range(self.d5):
-            try:
-                pars = [np.log10(T), L, M, A, 1.0, self.bs[i]]
-                # s = self.pp.predictspec(pars)
-                s = self.thepayne_eval(pars)
-                ## Reindex ## And this is not even optimized
-                ## TODO: optimize the following
-                mat = np.zeros(nwvls.shape, dtype=np.float32)
-                idpl = np.array(self.payne_regions_idx_length, dtype=int)
-                for r in range(len(nwvls)):
-                    mat[r][:idpl[r][1]] = s[idpl[r][0]:idpl[r][0]+idpl[r][1]]
-                s = mat
-                # _, s = wrap_interpolate_4d_c(
-                #                                     T, L, M, A,
-                #                                     teffs, loggs, mhs, alphas,
-                #                                     grid_n[i], 
-                #                                     0)
-            except:
-                raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
+            # try:
+            # pars = [np.log10(T), L, M, A, self.bs[i]]
+            # # s = self.pp.predictspec(pars)
+            # s = self.thepayne_eval(pars)
+            # s = self.eval_nn_batch_pca(pars)[0]
+            s = s_list[i]
+            ## Reindex ## And this is not even optimized
+            ## TODO: optimize the following
+            mat = np.zeros(nwvls.shape, dtype=np.float32)
+            idpl = np.array(self.payne_regions_idx_length, dtype=int)
+            for r in range(len(nwvls)):
+                mat[r][:idpl[r][1]] = s[idpl[r][0]:idpl[r][0]+idpl[r][1]]
+            s = mat
+            # _, s = wrap_interpolate_4d_c(
+            #                                     T, L, M, A,
+            #                                     teffs, loggs, mhs, alphas,
+            #                                     grid_n[i], 
+            #                                     0)
+            # except:
+            #     raise Exception("Interpolation failed for parameters: {} {} {} {} {}".format(T, L, M , A, self.bs[i]))
             _Bspec[i] = s
 
         if self.logCoeffs:
