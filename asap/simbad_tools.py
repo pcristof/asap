@@ -31,9 +31,9 @@ if __name__=="__main__":
 	outputstr = guess_star_name(inputstr)
 	print(outputstr)
     
-def query_simbad(name):
+def query_simbad(name, return_raw=False):
     simbad = Simbad()
-    simbad.add_votable_fields('mesFe_h', 
+    simbad.add_votable_fields('mesFe_h', 'mesRot',
                             #'pmra', 'pmdec', 'distance', 'rv_value', 
                             #'plx', 'plx_error', 
                             #'ra', 'dec',
@@ -48,4 +48,10 @@ def query_simbad(name):
     except: mh = np.nan
     try:vsini = np.nanmedian(np.array(result_ids['mesrot.vsini']))
     except: vsini = np.nan
-    return teff, logg, mh, vsini
+    if return_raw:
+        return result_ids
+    else:
+        return teff, logg, mh, vsini
+
+
+
