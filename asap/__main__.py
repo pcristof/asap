@@ -193,7 +193,9 @@ if args.simbad:
     from asap import simbad_tools as simbad_tools
     possible_names = simbad_tools.guess_star_name(SA.star)
     success=False
+    print("Trying to resolve the star name...")
     for _i, _name in enumerate(possible_names):
+        print(f"... {_name}?")
         try: output = simbad_tools.query_simbad(_name);
         except: output = None; success=False
         if output is not None:
@@ -201,7 +203,7 @@ if args.simbad:
                 success = False
             else:
                 success = True
-            if success: break;
+            if success: print(f"... {_name} v"); break;
     if output is not None:
         if np.any(~np.isnan(output)):
             print("Using Simbad values as a starting point:")
@@ -224,10 +226,24 @@ if args.simbad:
             simbad_values = True
 ## Now update the boundaries:
 if simbad_values:
-    SA.update_teffs(SA.teffs[(SA.teffs>SA._T-1000) & (SA.teffs<SA._T+1000)])
-    SA.update_loggs(SA.loggs[(SA.loggs>SA._L-1.0)&(SA.loggs<SA._L+1.0)])
-    SA.update_mhs(SA.mhs[(SA.mhs>SA._M-1.0)&(SA.mhs<SA._M+1.0)])
-    SA.update_alphas(SA.alphas[(SA.alphas>SA._A-1.0)&(SA.alphas<SA._A+1.0)])
+    ## The following would simply trim the data arrays.
+    #SA.update_teffs(SA.teffs[(SA.teffs>SA._T-1000) & (SA.teffs<SA._T+1000)])
+    #SA.update_loggs(SA.loggs[(SA.loggs>SA._L-1.0)&(SA.loggs<SA._L+1.0)])
+    #SA.update_mhs(SA.mhs[(SA.mhs>SA._M-1.0)&(SA.mhs<SA._M+1.0)])
+    #SA.update_alphas(SA.alphas[(SA.alphas>SA._A-1.0)&(SA.alphas<SA._A+1.0)])
+    _teffs = np.arange(SA._T-1000, SA._T+1100, 100, dtype=int)
+    _loggs = np.arange(SA._L-1.0, SA._L+2.0, 1.0)
+    _mhs = np.arange(SA._M-1.0, SA._M+2.0, 1.0)
+    _alphas = np.arange(SA._A-1.0, SA._A+2.0, 1.0)
+    SA.update_teffs(_teffs)
+    SA.update_loggs(_loggs)
+    SA.update_mhs(_mhs)
+    SA.update_alphas(_alphas)
+    print("New arrays are:")
+    print(SA.teffs)
+    print(SA.loggs)
+    print(SA.mhs)
+    print(SA.alphas)
 
 SA.set_student(args.student) ## Must happen before SA.init_PARAMS
 
