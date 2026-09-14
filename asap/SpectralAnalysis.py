@@ -1796,14 +1796,14 @@ class SpectralAnalysis:
         ## define a disk integration mode that is going to set the
         ## function used to generate spectra.
         self.diskIntegrationMode = 3
-        from Payne.predict import predictspec
-        from Payne.utils.smoothing import smoothspec
+        # from Payne.predict import predictspec
+        # from Payne.utils.smoothing import smoothspec
 
-        ## Predictor ! we actually will not be using the predictor
+        # ## Predictor ! we actually will not be using the predictor
         filename = pathtogrid+'modV0_spec_LinNet_R23K_WL450_672.h5'
         with h5py.File(filename, 'r') as f:
             payneNormFactor = f['normFactor'][()]
-        pp = predictspec.PayneSpecPredict(filename)
+        # pp = predictspec.PayneSpecPredict(filename)
 
         ## Created a new module
         from asap import nn_tools as nn_tools
