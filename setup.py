@@ -60,7 +60,7 @@ setup(
                  "support_data/blaze_data/*",
                  "support_data/ref_params/*",],  # Specify the file(s) to include
     },
-    python_requires='>=3.6',  # Specify the Python version
+    python_requires=">=3.10,<3.13",
     install_requires=[  # Dependencies that will be installed automatically
         "numpy",
         "astropy",
