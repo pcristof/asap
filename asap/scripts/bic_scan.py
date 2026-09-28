@@ -50,10 +50,10 @@ def main():
         local_path_file = '../local_paths.ini'
     if not os.path.isfile(local_path_file):
         local_path_file = '../../local_paths.ini'
-    
-    if os.path.isfile('local_paths.ini'):
+ 
+    if os.path.isfile(local_path_file):
         config = ConfigParser()
-        config.read('local_paths.ini')
+        config.read(local_path_file)
         if config.has_option('PATHS', 'pathtogrid'):
             SA.set_pathtogrid(config['PATHS']['pathtogrid'])
         if config.has_option('PATHS', 'pathtodata'):
