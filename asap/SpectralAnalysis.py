@@ -1376,7 +1376,7 @@ class SpectralAnalysis:
 
         ## Get a RV guess
         if self.guessRV:
-            radvel = guess_vrad(wvl, template)
+            radvel = guess_vrad(wvl, template, self._T)
         else:
             radvel = self.guessed_rv
         self.guessed_rv = radvel

@@ -1,6 +1,7 @@
 from numba import jit
 import numpy as np
 from importlib.resources import files
+from asap import analysis_tools as tls
 
 
 '''Functions used to read HITRAN files'''
@@ -105,17 +106,34 @@ def read_perso_mask(filename=None):
             depths.append(line.split()[1].strip())
     return np.array(wavelengths, dtype=float), np.array(depths, dtype=float)
 
-def read_vald_lines(filename=None):
+def read_vald_lines(filename=None, teff=None):
+    wavelengths_in_angstrom = False
     if filename is None:
-        filename = files("asap.support_data").joinpath("vald-lines")
+        if teff is None: 
+            filename = files("asap.support_data").joinpath("vald-lines")
+        else:
+            try: 
+                teff=int(teff); 
+            except: 
+                raise Exception('mask_tools.read_vald_line() teff must be int or None.')
+            filename = files("asap.support_data").joinpath(f"vald-lines_300-900_{teff}_short.txt")
+            wavelengths_in_angstrom = True
         # f = open(paths.irap_tools_data_path+'vald-lines', 'r')
     # else:
+
     f = open(filename, 'r')
     elements = []
     wavelengths = []
     depths = []
+    wavelength_medium='unknown'
     for i,line in enumerate(f.readlines()):
         if i<=2:
+            if 'WL_vac' in line: 
+                wavelength_medium='vac'
+                units=line.split('WL_vac(')[1][0].lower()
+            elif 'WL_air' in line: 
+                wavelength_medium='air'
+                units=line.split('WL_air(')[1][0].lower()
             continue
         elif len(line.split(','))>2:
             elements.append(line.split(',')[0].strip()[1:-1])
@@ -123,7 +141,16 @@ def read_vald_lines(filename=None):
             depths.append(line.split(',')[9].strip())
         elif len(line.split(','))<=5:
             break
-    return np.array(wavelengths, dtype=float), np.array(depths, dtype=float)
+    w = np.array(wavelengths, dtype=float)
+    if units=='a': wavelengths_in_angstrom = True
+    elif units=='n': wavelengths_in_angstrom = False
+    else: raise Exception('Did not understand the units of the VALD list.')
+    if wavelengths_in_angstrom: w=w/10
+    if wavelength_medium=='unknown': raise Exception('Could not detect if WL are air or vac')
+    elif wavelength_medium=='air':
+        w = tls.convert_lambda_in_vacuum(w*10)/10 
+        wavelength_medium='vac'
+    return w, np.array(depths, dtype=float)
 
 '''Fucntions used to generate masks from wavelength grid and line lists'''
 
