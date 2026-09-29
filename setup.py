@@ -60,8 +60,9 @@ setup(
                  "support_data/blaze_data/*",
                  "support_data/ref_params/*",],  # Specify the file(s) to include
     },
-    python_requires=">=3.10,<3.13",
+    python_requires=">=3.10",
     install_requires=[  # Dependencies that will be installed automatically
+        "llvmlite==0.44.0",
         "numpy",
         "astropy",
         "matplotlib",
