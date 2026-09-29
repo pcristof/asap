@@ -120,7 +120,13 @@ def main():
 
 
     print('---- Loading observations ----')
-    med_wvl, med_spectrum, med_err, berv = SA.load_obs(infile)
+    ## Try to load the observations as provided
+    try:
+        med_wvl, med_spectrum, med_err, berv = SA.load_obs(infile)
+    ## It happens that I decide to switch to all lower cases... 
+    except:
+        med_wvl, med_spectrum, med_err, berv = SA.load_obs(infile.lower())
+        
 
     print('done loading observation')
     print('------------------------------')
