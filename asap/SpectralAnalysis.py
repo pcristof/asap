@@ -1617,14 +1617,15 @@ class SpectralAnalysis:
             bounds = bounds[~nanOrders]
             orders = orders[~nanOrders]
 
-        f = open(region_file)
-        elwvls = []
-        els = []
-        for line in f.readlines():
-            if line.strip()[0]=="#": continue
-            elwvls.append(float(line.split()[0]))
-            els.append(line.split()[3])
-        f.close()
+        ## The following appears to be a relicate from an old time?
+        # f = open(region_file)
+        # elwvls = []
+        # els = []
+        # for line in f.readlines():
+        #     if line.strip()[0]=="#": continue
+        #     elwvls.append(float(line.split()[0]))
+        #     els.append(line.split()[3])
+        # f.close()
         regions = bounds.copy()
         ## make a check
         differences = np.diff(regions, axis=-1)
