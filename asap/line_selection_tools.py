@@ -516,9 +516,14 @@ def read_lines(filename=None, returnall=False):
         w.append(float(l[0]))
         lb.append(float(l[1]))
         hb.append(float(l[2]))
-        label.append(l[3])
-        ion.append(int(l[4]))
-        orders.append(int(l[5]))
+        if len(l)>3:
+            label.append(l[3])
+            ion.append(int(l[4]))
+            orders.append(int(l[5]))
+        else:
+            label.append('Uk')
+            ion.append(1)
+            orders.append(0)
     f.close()
     # # Enlarge regions to take some continuum points
     bounds = []
