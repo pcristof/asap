@@ -250,6 +250,18 @@ def make_regions_order_revamp(wvl, flux, bounds, mask, length=400):
         if (counter>=len(spaces)-1):
             exitloop = True
 
+    if len(_used_bounds)<=1: ## If one bound
+        cond = np.where((wvl>_used_bounds[0][0]) & (wvl<_used_bounds[0][1]))[0]
+        nbbins = len(wvl[cond])
+        if nbbins>length:
+            _new_used_bounds = []
+            j = 0
+            while (j*2000)<nbbins:
+                end = min((j+1)*2000, (nbbins-1))
+                _new_used_bounds.append([wvl[cond][j*2000], wvl[cond][end]])
+                j+=1
+            _used_bounds = _new_used_bounds
+
     ## Now _used_bounds should contain what we want to put at the center of 400 bins windows
     ## We need to take care of the edges effect !
     wvl_regions = []; flux_regions = []; mask_regions = [];
