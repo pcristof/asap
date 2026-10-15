@@ -1697,6 +1697,16 @@ class SpectralAnalysis:
         else:
             self.IDXTOFIT = np.where(~np.isnan(self.obs_flux_tofit*obs_err))
         
+        ## Raise exception if empty
+        if len(obs_wvl)==0:
+            ostr = '------------------------------------------------\n'
+            ostr+='asap.SA.create_regions --> No segments retained\n'
+            ostr+='This could be caused by wrong units in the input\n'
+            ostr+='line list file. Please make sure you entered nm\n'
+            ostr+='or specified units=A in the comment/headers at\n'
+            ostr+='the beggining of the file to specify the units.\n'
+            raise Exception(ostr)
+
         ## Store in global attributes:
         self.obs_wvl = obs_wvl; self.obs_flux = obs_flux; 
         self.obs_err = obs_err
