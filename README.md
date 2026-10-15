@@ -1,4 +1,4 @@
-# A Spectral Analysis Pipeline (ASAP) version 0.1
+# A Spectral Analysis Pipeline (ASAP) version 0.2
 #### Author: [Paul I. Cristofari](https://paulcristofari.github.io/) <br/> Contact: cristofari@strw.leidenuniv.nl
 
 If you use this package, please cite [Cristofari et al. (2023)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.522.1342C/abstract)
@@ -12,6 +12,10 @@ Some versions of this package were also used in:
 
 ##### Thanks to contributors:
 - Dion Cobelens (Leiden Unversity)
+
+## Notes regarding version 0.2
+Several improvements regarding accuracy and efficiency are brought in version 0.2. Most notably, this version now relies on Cython compiled functions for more efficiency. This version also provides a new refurbushed results.txt file, with clear type and labels, which makes it much easier with a simple function. Detailed documentation to follow.
+
 
 ## INSTALATION
 
