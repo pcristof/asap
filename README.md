@@ -1,5 +1,5 @@
 # A Spectral Analysis Pipeline (ASAP) version 0.2
-#### Author: [Paul I. Cristofari](https://paulcristofari.github.io/) <br/> Contact: cristofari@strw.leidenuniv.nl
+#### Author: [Paul I. Cristofari](https://paulcristofari.github.io/) <br/> Contact: paul.cristofari@uni-goettingen.de
 
 If you use this package, please cite [Cristofari et al. (2023)](https://ui.adsabs.harvard.edu/abs/2023MNRAS.522.1342C/abstract)
 
