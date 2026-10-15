@@ -503,27 +503,53 @@ def make_regions_2d(wvl, flux, bounds, mask, orders, length=400):
     return np.array(nwvl_regions), np.array(nflux_regions), np.array(nnmasks) 
 
 def read_lines(filename=None, returnall=False):
+    '''The function that reads the input line list format for ASAP
+    The list should contain regions of spectra, not necessarily lines
+    For legacy reasons I still support my format, a 5 column file containing:
+    `central_wave wave_min wave_max element ionization spectral_order`
+    Things have changed since then, now you can simply provide:
+    `central_wave wave_min wave_max`
+    In the future we will try to make it even more robust.
+
+    New addition will be the handling of headers / units. Default is nm.
+    '''
     if filename is None:
         # filename = paths.irap_tools_data_path+'selected_line_list.txt'
         raise Exception('read_lines: No input file')
     f = open(filename, 'r')
+    header = {}; record_header = True
     w, lb, hb, label, ion, orders = [], [], [], [], [], []
     for line in f.readlines():
-        if line.strip()[0]=="#": continue
-        if line.strip()=="": continue ## Empty line
-        # print(line)
-        l = line.split()
-        w.append(float(l[0]))
-        lb.append(float(l[1]))
-        hb.append(float(l[2]))
-        if len(l)>3:
-            label.append(l[3])
-            ion.append(int(l[4]))
-            orders.append(int(l[5]))
+        linestr = line.strip()
+        if linestr[0]=="#": 
+            if record_header:
+                if ('=' in linestr) | (':' in linestr):
+                    sl = linestr.split()
+                    for item in sl:
+                        if '=' in item: 
+                            ssl = item.split('=')
+                            header[ssl[0]]=ssl[1]
+                        elif ':' in item: 
+                            ssl = item.split(':')
+                            header[ssl[0]]=ssl[1]
+            else:
+                pass # continue
+        elif linestr=="": pass #continue ## Empty line
         else:
-            label.append('Uk')
-            ion.append(1)
-            orders.append(0)
+            ## We reached this point so we finished the headear/empty lines
+            record_header = False
+            l = line.split()
+            w.append(float(l[0]))
+            lb.append(float(l[1]))
+            hb.append(float(l[2]))
+            if len(l)>3:
+                label.append(l[3])
+                ion.append(int(l[4]))
+                orders.append(int(l[5]))
+            else:
+                label.append('Uk')
+                ion.append(1)
+                orders.append(0)
     f.close()
     # # Enlarge regions to take some continuum points
     bounds = []
@@ -531,6 +557,23 @@ def read_lines(filename=None, returnall=False):
         _lb = lb[i]
         _hb = hb[i]
         bounds.append([_lb, _hb])
+
+    ## From the header intepret whatever we want
+    headerkeys = list(header.keys())
+    units = 'nm'
+    if ('unit' in headerkeys): units=header['unit']
+    if ('units' in headerkeys): units=header['units']
+    units = units.lower()
+    if units in ['a', 'angs', 'angstrom']:
+        factor = 0.1
+    else:
+        factor = 1
+    ## Update based on units
+    _bounds = []
+    for bound in bounds:
+        _lb, _hb = bound
+        _bounds.append([_lb*factor, _hb*factor])
+    bounds = _bounds
 
     ## Create the mask actually use for the analysis
     mask = [[lb[i], hb[i]] for i in range(len(lb))]
