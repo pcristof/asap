@@ -62,7 +62,7 @@ setup(
     },
     python_requires=">=3.10",
     install_requires=[  # Dependencies that will be installed automatically
-        "llvmlite==0.44.0",
+        "llvmlite",
         "numpy",
         "astropy",
         "matplotlib",
@@ -73,11 +73,12 @@ setup(
         "h5py",
         "dynesty",
         "ultranest",
+	"dask[array]",
         "corner",
         "tqdm",
         "scipy",
         "PyAstronomy",
-        "msgpack"
+        "msgpack",
     ],
     entry_points={
         'console_scripts': [
