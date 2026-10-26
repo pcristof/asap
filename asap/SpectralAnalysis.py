@@ -1281,6 +1281,9 @@ class SpectralAnalysis:
         self.set_vmacMode(res['vmac_mode'])
         self.set_instrument(res['input_instrument'])
         ## For now I ignore the vielling factors
+
+        # self.update_veil
+
         self.update_teffs(res['input_teffArray'])
         self.update_loggs(res['input_loggArray'])
         self.update_mhs(res['input_mhArray'])
@@ -1369,10 +1372,10 @@ class SpectralAnalysis:
                 template_err = hdu[3].data
             hdu.close()
 
-        ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
-        ## That is a problem for us, so we complete it:
-        if np.any(np.isnan(wvl)):
-            nwvl = fill_nans_wavelength_v3(wvl)
+        # ## In the p.fits files, there are NaNs in the wavelength solution... Don't ask
+        # ## That is a problem for us, so we complete it:
+        # if np.any(np.isnan(wvl)):
+        #     nwvl = fill_nans_wavelength_v3(wvl)
 
         ## Get a RV guess
         if self.guessRV:
@@ -3728,32 +3731,32 @@ class SpectralAnalysis:
 
         # from IPython import embed;embed()
 
-        increments = np.arange(0.9,1.1,0.01)
-        r = 0 ## For a given region
-        continuum = np.ones(fit.shape)
-        for r in range(len(self.obs_flux_tofit)):
-            ## For this region, get the observation and the model valid points:
-            _idx = self.IDXTOFIT[1][self.IDXTOFIT[0]==r]
-            obs = self.obs_flux_tofit[r, _idx]
-            mod = fit[r, _idx]
-            _myerr = self.obs_err[r, _idx] * np.sqrt(self.normFactor)
-            var = _myerr**2
+        # increments = np.arange(0.9,1.1,0.01)
+        # r = 0 ## For a given region
+        # continuum = np.ones(fit.shape)
+        # for r in range(len(self.obs_flux_tofit)):
+        #     ## For this region, get the observation and the model valid points:
+        #     _idx = self.IDXTOFIT[1][self.IDXTOFIT[0]==r]
+        #     obs = self.obs_flux_tofit[r, _idx]
+        #     mod = fit[r, _idx]
+        #     _myerr = self.obs_err[r, _idx] * np.sqrt(self.normFactor)
+        #     var = _myerr**2
 
-            chi2 = np.inf
-            # for _c in increments:
-                # _resup = (self.obs_flux_tofit[r, _idx]/_c - fit[r, _idx])**2
-                # _myerr = self.obs_err[r, _idx] * np.sqrt(self.normFactor)
-                # _resdown = _myerr**2
-                # _chi2 = np.sum(_resup/_resdown)
-                # if _chi2<chi2:
-                #     continuum[r, _idx]=_c
-                #     chi2 = _chi2
-            c = np.sum(obs**2 / var) / np.sum(obs * mod / var)
-        continuum = continuum[self.IDXTOFIT]
+        #     chi2 = np.inf
+        #     # for _c in increments:
+        #         # _resup = (self.obs_flux_tofit[r, _idx]/_c - fit[r, _idx])**2
+        #         # _myerr = self.obs_err[r, _idx] * np.sqrt(self.normFactor)
+        #         # _resdown = _myerr**2
+        #         # _chi2 = np.sum(_resup/_resdown)
+        #         # if _chi2<chi2:
+        #         #     continuum[r, _idx]=_c
+        #         #     chi2 = _chi2
+        #     c = np.sum(obs**2 / var) / np.sum(obs * mod / var)
+        # continuum = continuum[self.IDXTOFIT]
 
-        _resup = (self.obs_flux_tofit[self.IDXTOFIT]/continuum
-                  - fit[self.IDXTOFIT])**2
-        _resdown = myerr**2
+        # _resup = (self.obs_flux_tofit[self.IDXTOFIT]/continuum
+        #           - fit[self.IDXTOFIT])**2
+        # _resdown = myerr**2
 
 
         # ## ------------------------------------------------------------------------------
@@ -4488,9 +4491,9 @@ class SpectralAnalysis:
                         ax.tick_params(axis='both', labelsize=16)
                         ax.title.set_fontsize("16")
                     ## Corner plots
-                    fig = corner.corner(meanfield, weights=sample_weights, **CORNER_KWARGS)
+                    # fig = corner.corner(meanfield, weights=sample_weights, **CORNER_KWARGS)
                     # Extract the axes
-                    axes = np.array(fig.axes).reshape((_ndim, _ndim))
+                    # axes = np.array(fig.axes).reshape((_ndim, _ndim))
                     ## Compute max likelihood
                     ## There are two alternatives posible
                     #
@@ -4510,7 +4513,7 @@ class SpectralAnalysis:
                     max50 = meanfield[idx50]
                     maxpos = np.array([np.mean(max50)])
 
-                    ax = axes[0,0]
+                    # ax = axes[0,0]
                     ax.axvline(maxres[0], color='black')
                     ax.axvline(maxpos[0], color='red')
 
@@ -4938,7 +4941,11 @@ class SpectralAnalysis:
             p = len(mcmcs) ## number of parameters
             new_normFactor = minchi2 * self.normFactor / (nbPointsFitted - p)
             self.save_normFactor(new_normFactor)
-        
+        else:
+            self.lnlike()
+            minchi2 = np.sum(self._res)
+            new_normFactor = minchi2 * self.normFactor / (nbPointsFitted)
+            self.save_normFactor(new_normFactor)
         ## Compute BIC (Bayesian Information Criterion)
         ## as defined in 2017ARA&A..55..213S
         ## BIC = -2*ln(L_max) + n*ln(N)
@@ -4947,7 +4954,15 @@ class SpectralAnalysis:
         ## I am here considering that the number of degrees of freedom is the
         ## number of all fit parameters (Teff+logg+mh...+filling factors) based
         ## on what the user is computing. This is the length of `mcmcs`
-        nof = len(mcmcs)
+        ## This is only valid if we have run the MCMC. Otherwise we cannot compute
+        ## the bic -- we have no "degrees of freedom". Alternatively, we could
+        ## assume this degree of freedom is the length of bs... This may be a good
+        ## assumption since that is really what we are after.
+        ## so:
+        if mcmcs is not None:
+            nof = len(mcmcs)
+        else:
+            nof = len(self.bs)
         bic = -2.0 * maxLnLikelihood + nof * np.log(nbPointsFitted)
 
         strcoeffs = [str(coeffs[i]) for i in range(len(coeffs))]
@@ -5189,6 +5204,13 @@ class SpectralAnalysis:
         resdict['input_resampleVel'] = self.resampleVel
         resdict['input_errType'] = self.errType
 
+        ## Temporary fix too. This key is typically missing
+        ## if we are running with fixed parameters bypassing
+        ## the MCMC.
+        if 'student_t_dof' not in resdict:
+            resdict['student_t_dof'] = 1.0
+            resdict['e_student_t_dof'] = 0.0
+
         ## Now create the output file
         ostr=""
         for key in resfile_keys:
@@ -5417,14 +5439,17 @@ class SpectralAnalysis:
                         # title_fmt=".2E",
                         labels=_labels
                     )
+
+                    fig, ax = plt.subplots(1,1)
+
                     ## Make the ticks bigger
                     for ax in fig.get_axes():
                         ax.tick_params(axis='both', labelsize=16)
                         ax.title.set_fontsize("16")
                     ## Corner plots
-                    fig = corner.corner(meanfield,**CORNER_KWARGS)
+                    # fig = corner.corner(meanfield,**CORNER_KWARGS)
                     # Extract the axes
-                    axes = np.array(fig.axes).reshape((_ndim, _ndim))
+                    # axes = np.array(fig.axes).reshape((_ndim, _ndim))
                     ## Compute max likelihood
                     ## There are two alternatives posible
                     #
