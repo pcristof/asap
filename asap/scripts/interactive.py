@@ -10,7 +10,9 @@ def main():
     from numpy.linalg import svd
     import numpy as np
     import matplotlib.pyplot as plt
-    from asap.SpectralAnalysis import read_res, read_res_v2
+    from asap.reader import read_res, read_res_v2
+    from asap import analysis_tools as tls
+    from asap import vald_tools
 
     parser = argparse.ArgumentParser()
     parser.add_argument("indir", type=str, help="Input grid directory")
@@ -131,6 +133,7 @@ def main():
     ## Cool. But now I need to read the results file:
     # results = read_res(args.indir+'results_raw.txt')
     results = read_res_v2(args.indir+'results.txt')
+    # SA.init_from_results(args.indir+'results.txt') ## New version
     SA.set_from_file(args.indir+'results_raw.txt')
 
     ## Load the fit-data.fits file if available
@@ -152,8 +155,6 @@ def main():
 
 
     ## Choose a VALD line list to use to identify the lines.
-    from irap_tools import analysis_tools as tls
-    from irap_tools import vald_tools
     vald_files_path = '/Users/pcristofari/Data/line-lists/vald-linelists/vald-nohf/'
     vald_files = [vald_files_path+'3500_5.0_9000_15000_ths0.01_nohf.vald',  
                 vald_files_path+'3500_5.0_15000_20000_ths0.01_nohf.vald', 
