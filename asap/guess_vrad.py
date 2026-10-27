@@ -49,6 +49,7 @@ def guess_vrad_5(med_wvl, med_spectrum, teff=None, return_ccf=False):
     med_wvl = np.array(med_wvl, dtype=float)
     med_spectrum = np.array(med_spectrum, dtype=float)
     rvshifts, corrp, div = ccf_2d(w, f, med_wvl, med_spectrum, step=2, span=500, function='cubic')
+    rvshifts1, corrp1, div1 = np.copy(rvshifts), np.copy(corrp), np.copy(div)
     # from IPython import embed
     # embed()
     idx = np.where(corrp/div==np.min(corrp/div))
@@ -75,6 +76,6 @@ def guess_vrad_5(med_wvl, med_spectrum, teff=None, return_ccf=False):
     #plt.show()
 
     if return_ccf:
-        return rv+rv0, rvshifts, corrp/div
+        return rv+rv0, rvshifts1, corrp1/div1, rvshifts, corrp/div
     else:
         return rv+rv0

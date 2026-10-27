@@ -1379,14 +1379,20 @@ class SpectralAnalysis:
 
         ## Get a RV guess
         if self.guessRV:
-            radvel, _rvs, _profile = guess_vrad(wvl, template, self._T, 
+            radvel, _rvs1, _profile1, _rvs, _profile = guess_vrad(
+                                                wvl, template, self._T, 
                                                 return_ccf=True)
             ## Save the CCF to an outout h5 file:
             with h5py.File(self.opath+'run_data.h5', 'a') as f:
-                dataset_name = 'guess_vrad_ccf'
+                dataset_name = 'guess_vrad_ccf_step1'
+                if dataset_name not in f:
+                    f.create_dataset(dataset_name, 
+                                     data=np.array([_rvs1, _profile1]))
+                dataset_name = 'guess_vrad_ccf_step2'
                 if dataset_name not in f:
                     f.create_dataset(dataset_name, 
                                      data=np.array([_rvs, _profile]))
+            print(f'Guessed RV: {radvel}')
         else:
             radvel = self.guessed_rv
         self.guessed_rv = radvel
