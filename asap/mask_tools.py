@@ -2,7 +2,7 @@ from numba import jit
 import numpy as np
 from importlib.resources import files
 from asap import analysis_tools as tls
-
+import glob
 
 '''Functions used to read HITRAN files'''
 
@@ -106,50 +106,102 @@ def read_perso_mask(filename=None):
             depths.append(line.split()[1].strip())
     return np.array(wavelengths, dtype=float), np.array(depths, dtype=float)
 
-def read_vald_lines(filename=None, teff=None):
-    wavelengths_in_angstrom = False
-    if filename is None:
-        if teff is None: 
-            filename = files("asap.support_data").joinpath("vald-lines")
-        else:
-            try: 
-                teff=int(teff); 
-            except: 
-                raise Exception('mask_tools.read_vald_line() teff must be int or None.')
-            filename = files("asap.support_data").joinpath(f"vald-lines_300-900_{teff}_short.txt")
-            wavelengths_in_angstrom = True
-        # f = open(paths.irap_tools_data_path+'vald-lines', 'r')
-    # else:
+def read_vald_lines(filename=None, teff=None, wave_bounds=[0, np.inf]):
 
-    f = open(filename, 'r')
+    ## Read the first line of all the files to short the data:
+    filenames = files("asap.support_data").joinpath(f'vald-lines_*')
+    fnames = glob.glob(str(filenames))
+    data_files = {}
+    teffs = []; wave_ranges = []
+    for fname in fnames:
+        with open(fname, 'r') as f:
+            ## First line of the file contains wave boundaries
+            line = f.readline()
+            sl = line.split(',')
+            wave_start = float(sl[0]); wave_end = float(sl[1])
+            nlines = int(sl[2]) ## Number of lines
+            ## Get unit and medium:
+            line = next(line for n, line in enumerate(f, 1) if n == 2)
+            if 'WL_vac' in line:
+                units=line.split('WL_vac(')[1][0].lower()
+                medium='vac'
+            elif 'WL_air':
+                units=line.split('WL_air(')[1][0].lower()
+                medium='air'
+            if units=='a': ## To nanometers
+                wave_start = wave_start/10
+                wave_end = wave_end/10
+            if medium=='air': ## To vacuum
+                wave_start = tls.convert_lambda_in_vacuum(wave_start*10)/10 
+                wave_end = tls.convert_lambda_in_vacuum(wave_end*10)/10 
+            ## Get the model atmosphere used
+            line = next(line for n, line in enumerate(f, 1) if n == (nlines+1))
+            if '_T' in line:
+                _t = int(line.strip().split('_T')[1].split('G')[0]) ## Temperature
+            elif line.replace("'", "").strip()[0]=='p':
+                _t = int(line.replace("'", "").strip()[1:].split('_')[0])
+            else:
+                raise Exception(f'Could not read vald file model: {line}')
+            teffs.append(_t); wave_ranges.append([wave_start, wave_end])
+    teffs = np.array(teffs); wave_ranges = np.array(wave_ranges)
+    ## Now select the correct file
+
+    wavelengths_in_angstrom = False
+    
+    absres = np.abs(teffs-teff)
+    idx = np.where(absres==np.min(absres))[0] ## Can have multiple values
+    fnames_keep = []
+    for i in idx:
+        if (wave_ranges[i][1]>wave_bounds[0]>wave_ranges[i][0])\
+           | (wave_ranges[i][1]>wave_bounds[1]>wave_ranges[i][0]):
+           fnames_keep.append(fnames[i])
+
+    # if filename is None:
+    #     if teff is None: 
+    #         filename = files("asap.support_data").joinpath("vald-lines")
+    #     else:
+    #         try: 
+    #             teff=int(teff); 
+    #         except: 
+    #             raise Exception('mask_tools.read_vald_line() teff must be int or None.')
+    #         filename = files("asap.support_data").joinpath(f"vald-lines_300-900_{teff}_short.txt")
+    #         wavelengths_in_angstrom = True
+    #     # f = open(paths.irap_tools_data_path+'vald-lines', 'r')
+    # # else:
     elements = []
     wavelengths = []
     depths = []
-    wavelength_medium='unknown'
-    for i,line in enumerate(f.readlines()):
-        if i<=2:
-            if 'WL_vac' in line: 
-                wavelength_medium='vac'
-                units=line.split('WL_vac(')[1][0].lower()
-            elif 'WL_air' in line: 
-                wavelength_medium='air'
-                units=line.split('WL_air(')[1][0].lower()
-            continue
-        elif len(line.split(','))>2:
-            elements.append(line.split(',')[0].strip()[1:-1])
-            wavelengths.append(line.split(',')[1].strip())
-            depths.append(line.split(',')[9].strip())
-        elif len(line.split(','))<=5:
-            break
-    w = np.array(wavelengths, dtype=float)
-    if units=='a': wavelengths_in_angstrom = True
-    elif units=='n': wavelengths_in_angstrom = False
-    else: raise Exception('Did not understand the units of the VALD list.')
-    if wavelengths_in_angstrom: w=w/10
-    if wavelength_medium=='unknown': raise Exception('Could not detect if WL are air or vac')
-    elif wavelength_medium=='air':
-        w = tls.convert_lambda_in_vacuum(w*10)/10 
-        wavelength_medium='vac'
+    for filename in fnames_keep:
+        f = open(filename, 'r')
+        wavelength_medium='unknown'
+        for i,line in enumerate(f.readlines()):
+            if i<=2:
+                if 'WL_vac' in line: 
+                    wavelength_medium='vac'
+                    units=line.split('WL_vac(')[1][0].lower()
+                elif 'WL_air' in line: 
+                    wavelength_medium='air'
+                    units=line.split('WL_air(')[1][0].lower()
+                continue
+            elif len(line.split(','))>2:
+                _w = float(line.split(',')[1].strip())
+                if units=='a': _w=_w/10 ## To nanometers
+                ## Check medium
+                if wavelength_medium=='unknown': 
+                    raise Exception('Could not detect if WL are air or vac')
+                elif wavelength_medium=='air': ## To vacuum
+                    _w = tls.convert_lambda_in_vacuum(_w*10)/10 
+                    wavelength_medium='vac'
+                ## Check if the value is in the requested bounds
+                if (_w>wave_bounds[0])&(_w<wave_bounds[1]):
+                    elements.append(line.split(',')[0].strip()[1:-1])
+                    wavelengths.append(_w)
+                    depths.append(line.split(',')[9].strip())
+            elif len(line.split(','))<=5:
+                break
+    if len(wavelengths)==0:
+        return None, None
+    w = np.array(wavelengths)
     return w, np.array(depths, dtype=float)
 
 '''Fucntions used to generate masks from wavelength grid and line lists'''
