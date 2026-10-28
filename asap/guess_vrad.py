@@ -34,7 +34,9 @@ def guess_vrad_5(med_wvl, med_spectrum, teff=None, return_ccf=False):
     w1 = np.nanmin(med_wvl); w2 = np.nanmax(med_wvl)
     dlam1 = 300*w1/(3*1e5); dlam2 = 300*w2/(3*1e5) 
     bounds=[w1-dlam1, w2+dlam2]
-    w, f = msk_tls.read_vald_lines(teff=_teff, wave_bounds=bounds) ## VALD line list
+    w, f = msk_tls.read_vald_lines(teff=_teff, 
+                                   wave_bounds=bounds,
+                                   units='nm') ## VALD line list
     if w is None:
         ## Raise error if we could not find a proper mask
         message = 'Could not find adequate mask for guess_vrad.\n'\
@@ -54,6 +56,8 @@ def guess_vrad_5(med_wvl, med_spectrum, teff=None, return_ccf=False):
     # embed()
     idx = np.where(corrp/div==np.min(corrp/div))
     rv0 = rvshifts[idx][0]
+
+
 
     rvshifts, corrp, div = ccf_2d(w*doppler(-rv0), f, med_wvl, med_spectrum, step=.1, span=50, function='cubic')
 

@@ -106,7 +106,8 @@ def read_perso_mask(filename=None):
             depths.append(line.split()[1].strip())
     return np.array(wavelengths, dtype=float), np.array(depths, dtype=float)
 
-def read_vald_lines(filename=None, teff=None, wave_bounds=[0, np.inf]):
+def read_vald_lines(filename=None, teff=None, wave_bounds=[0, np.inf], units='A'):
+    '''Unit is the unit to be returned'''
 
     ## Read the first line of all the files to short the data:
     filenames = files("asap.support_data").joinpath(f'vald-lines_*')
@@ -123,17 +124,21 @@ def read_vald_lines(filename=None, teff=None, wave_bounds=[0, np.inf]):
             ## Get unit and medium:
             line = next(line for n, line in enumerate(f, 1) if n == 2)
             if 'WL_vac' in line:
-                units=line.split('WL_vac(')[1][0].lower()
+                _units=line.split('WL_vac(')[1][0].lower()
                 medium='vac'
-            elif 'WL_air':
-                units=line.split('WL_air(')[1][0].lower()
+            elif 'WL_air' in line:
+                _units=line.split('WL_air(')[1][0].lower()
                 medium='air'
-            if units=='a': ## To nanometers
+            else:
+                raise Exception('mask_tools: Could not recognize medium')
+            if _units not in ['a', 'n']:
+                raise Exception('mask_tools: units not recognized')
+            if _units=='a': ## To nanometers
                 wave_start = wave_start/10
                 wave_end = wave_end/10
             if medium=='air': ## To vacuum
                 wave_start = tls.convert_lambda_in_vacuum(wave_start*10)/10 
-                wave_end = tls.convert_lambda_in_vacuum(wave_end*10)/10 
+                wave_end = tls.convert_lambda_in_vacuum(wave_end*10)/10
             ## Get the model atmosphere used
             line = next(line for n, line in enumerate(f, 1) if n == (nlines+1))
             if '_T' in line:
@@ -146,8 +151,6 @@ def read_vald_lines(filename=None, teff=None, wave_bounds=[0, np.inf]):
     teffs = np.array(teffs); wave_ranges = np.array(wave_ranges)
     ## Now select the correct file
 
-    wavelengths_in_angstrom = False
-    
     absres = np.abs(teffs-teff)
     idx = np.where(absres==np.min(absres))[0] ## Can have multiple values
     fnames_keep = []
@@ -172,36 +175,49 @@ def read_vald_lines(filename=None, teff=None, wave_bounds=[0, np.inf]):
     wavelengths = []
     depths = []
     for filename in fnames_keep:
-        f = open(filename, 'r')
-        wavelength_medium='unknown'
-        for i,line in enumerate(f.readlines()):
-            if i<=2:
-                if 'WL_vac' in line: 
-                    wavelength_medium='vac'
-                    units=line.split('WL_vac(')[1][0].lower()
-                elif 'WL_air' in line: 
-                    wavelength_medium='air'
-                    units=line.split('WL_air(')[1][0].lower()
-                continue
-            elif len(line.split(','))>2:
-                _w = float(line.split(',')[1].strip())
-                if units=='a': _w=_w/10 ## To nanometers
-                ## Check medium
-                if wavelength_medium=='unknown': 
-                    raise Exception('Could not detect if WL are air or vac')
-                elif wavelength_medium=='air': ## To vacuum
-                    _w = tls.convert_lambda_in_vacuum(_w*10)/10 
-                    wavelength_medium='vac'
-                ## Check if the value is in the requested bounds
-                if (_w>wave_bounds[0])&(_w<wave_bounds[1]):
-                    elements.append(line.split(',')[0].strip()[1:-1])
-                    wavelengths.append(_w)
-                    depths.append(line.split(',')[9].strip())
-            elif len(line.split(','))<=5:
-                break
+        with open(filename, 'r') as f:
+            wavelength_medium='unknown'
+            _units = 'unknown'
+            for i,line in enumerate(f.readlines()):
+                if i<=2:
+                    if 'WL_vac' in line: 
+                        wavelength_medium='vac'
+                        _units=line.split('WL_vac(')[1][0].lower()
+                    elif 'WL_air' in line: 
+                        wavelength_medium='air'
+                        _units=line.split('WL_air(')[1][0].lower()
+                    else:
+                        if i<2:
+                            continue
+                        else:
+                            raise Exception('mask_tools: Could not regonize medium')
+                    # continue
+                elif len(line.split(','))>2:
+                    if _units not in ['a', 'n']:
+                        raise Exception('mask_tools: Could not regonize units')
+                    _w = float(line.split(',')[1].strip())
+                    if _units=='a': _w=_w/10 ## To nanometers
+                    ## Check medium
+                    if wavelength_medium=='unknown': 
+                        raise Exception('Could not detect if WL are air or vac')
+                    elif wavelength_medium=='air': ## To vacuum
+                        _w = tls.convert_lambda_in_vacuum(_w*10)/10 
+                    ## Check if the value is in the requested bounds
+                    if (_w>wave_bounds[0])&(_w<wave_bounds[1]):
+                        elements.append(line.split(',')[0].strip()[1:-1])
+                        wavelengths.append(_w)
+                        depths.append(line.split(',')[9].strip())
+                elif len(line.split(','))<=5:
+                    break
     if len(wavelengths)==0:
         return None, None
     w = np.array(wavelengths)
+    if units=='A':
+        w = w*10
+    elif units=='nm':
+        pass
+    else:
+        raise Exception('mask_tools: Uknown unit for vald line list.')
     return w, np.array(depths, dtype=float)
 
 '''Fucntions used to generate masks from wavelength grid and line lists'''
