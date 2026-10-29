@@ -91,6 +91,7 @@ setup(
             'asap.interactive=asap.scripts.interactive:main',
             'asap.bic_scan=asap.scripts.bic_scan:main',
             'asap.simbad_collect=asap.simbad_tools:main',
+            'asap.linefit_shared=asap.linefit_shared:main',
             # 'asap.run_analysis=asap.scripts.run_analysis:main',  # Command-line utility
         ],
     },

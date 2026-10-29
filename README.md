@@ -183,6 +183,26 @@ ASAP use the filename to know what format you provided. If you want to use the p
 ASAP reads a list of regions to use to perform the fit. It is designed to automatically select the orders of the spectra with maximum throughput, and re-agarange the provided segments to optmize the number of regions containing the lines we selected. The file contains 5 columns:
 Center wavelength, lower wavelength, upper wavelength, element, ionization state, order. The last three columns must exist, but are unused in the current version of ASAP (I often default them to 'U 1 0'). Wavelengths must be in nanometers.
 
+### Joint line fitting with shared filling factors (`asap.linefit_shared`, branch `linefit-shared`)
+Fits all regions of the line list together: ONE set of magnetic filling factors shared by every line, while each
+line has its own local continuum level `c0` and line-depth (intensity) factor `k`:
+
+    model_r = c0_r * (1 - k_r * (1 - sum_i a_i S_i,r))
+
+Teff, log(g), [M/H], [a/Fe], RV and the broadening are fixed (config, or `--teff --logg --mh --alpha --rv --vsini
+--vmac --vb`). For given filling factors the model is linear in (c0_r*(1-k_r), c0_r*k_r), so these per-line numbers are
+integrated out analytically (flat prior on that pair) and emcee only samples the shared filling factors. The per-line
+`c0` and `k` posteriors are then drawn exactly from their Gaussian conditional. The per-field models are computed once
+through `gen_spec` (continuum adjustment off); this needs the pipeline to be linear in the filling factors, so run
+`python -m asap.linefit_shared <star> --check-linearity` first (deviations should be ~1e-12).
+```
+python -m asap.linefit_shared <star> --nsteps 5000 --plot
+python -m asap.linefit_shared <star> --lines 0,5,10-20
+```
+Outputs in `linefit_shared_<star>/`: `shared_results.txt` (global filling factors and <B> with errors, then one row per
+line with `c0`, `k` and chi2), `shared_samples.npz` (chain), `shared_line_params.npz` (posterior draws of `c0` and `k`
+per line), `shared_models.npz` (best-fit model per region) and `shared_fits.pdf` (`--plot`).
+
 # Thank for using ASAP !
 If you find miskates or have suggestions, be sure to reach out.
 ```
