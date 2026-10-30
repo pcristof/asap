@@ -329,6 +329,8 @@ def check_linearity(SA, basis, pars, ntest=3, seed=0):
 
 
 def parse_lines(spec, nreg):
+    '''This function selects the requested lines
+    or simply returns them all.'''
     if spec is None:
         return list(range(nreg))
     sel = []
@@ -390,7 +392,7 @@ def main(argv=None):
     SA.set_star(star)
     SA.read_config(config_copy)
 
-    infile = None
+    infile = None ## Try to guess the name of the file
     for cand in ("%s_templates.fits", "%s.fits", "%s_template.fits"):
         f = SA.pathtodata + cand % star
         if os.path.isfile(f):
@@ -411,7 +413,7 @@ def main(argv=None):
         SA.compute_normFactor(SA.normFactor)
     SA.set_adjcont(False)       # continuum is fitted per line here
 
-    def pick(v, default):
+    def pick(v, default): ## Convenience function
         return default if v is None else v
 
     T = pick(args.teff, SA._T)
@@ -422,6 +424,7 @@ def main(argv=None):
     vsini = pick(args.vsini, SA.vsini)
     vmac = pick(args.vmac, SA.vmac)
     vb = pick(args.vb, SA.vb)
+    ## These parameters will now remain fixed
     print("Fixed: Teff=%s logg=%s [M/H]=%s [a/Fe]=%s rv=%s vsini=%s vmac=%s vb=%s"
           % (T, L, M, A, rv, vsini, vmac, vb))
     pars = (T, L, M, A, rv, vsini, vmac, vb)
@@ -431,11 +434,16 @@ def main(argv=None):
     print("Basis computed for %d field strengths in %.1f s"
           % (basis.shape[0], time.time() - t0))
     if args.check_linearity:
+        ## This is a test to check tha the implementation
+        ## is consistent with the original implementation
+        ## of ASAP.
         worst = check_linearity(SA, basis, pars)
         print("Worst deviation: %.3e" % worst)
         return
 
+    ## This I probably do not want in the future?
     err_scale = np.sqrt(SA.normFactor)
+    ## Go through the file
     rows, cols = SA.IDXTOFIT
     sel, wv, fl, er, ix, bl = [], [], [], [], [], []
     for r in parse_lines(args.lines, len(SA.obs_wvl)):
@@ -447,7 +455,7 @@ def main(argv=None):
         if not np.all(np.isfinite(b[:, idx])) or np.ptp(b[:, idx]) < 1e-8:
             print("Line %d: model has no usable structure, skipped" % r)
             continue
-        sel.append(r)
+        sel.append(r) ## The order for the line?
         wv.append(SA.obs_wvl[r])
         fl.append(SA.obs_flux[r])
         er.append(SA.obs_err[r] * err_scale)
@@ -467,6 +475,21 @@ def main(argv=None):
     if args.plot:
         plot_results(opath, prob, res, models, fl)
     print("Results in %s" % opath)
+
+    print('Repeating for a non-magnetic case')
+    # --- fixed 0 kG field (a = [1, 0, ...]): per-line c0, k; same analytic marginalisation, no MCMC
+    a0 = np.eye(prob.nB)[0]
+    models0, c0_0, k_0, chi2_0 = prob.model_full(a0)
+    c0d, kd = prob.line_draws(np.zeros((args.ndraw, prob.ndim)), np.random.default_rng(args.seed))
+    (c_lo, c_md, c_hi), (k_lo, k_md, k_hi) = pct(c0d), pct(kd)
+    np.savetxt(os.path.join(opath, "zero_field_results.txt"), np.column_stack(
+        [prob.lines, c_md, c_md - c_lo, c_hi - c_md, k_md, k_md - k_lo, k_hi - k_md, chi2_0]),
+        fmt=["%d"] + ["%.5g"] * 7, header="line c0 c0_em c0_ep k k_em k_ep chi2")
+    np.savez_compressed(os.path.join(opath, "zero_field_models.npz"), lines=prob.lines, flux=np.array(fl),
+                        wvl=np.array(prob.wvls), model=np.array(models0), c0=c0_0, k=k_0, chi2=chi2_0,
+                        used=np.array([np.isin(np.arange(len(w)), i) for w, i in zip(prob.wvls, prob.idxs)])
+                        )
+    print("chi2: 0 kG %.1f, MAP fields %.1f" % (chi2_0.sum(), prob.model_full(prob.fields(res["theta_map"]))[3].sum()))
 
 
 if __name__ == "__main__":

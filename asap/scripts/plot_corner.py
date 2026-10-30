@@ -1,5 +1,5 @@
 
-def main():
+def plot_corner_asap():
     import shutil
     import numpy as np
     import argparse
@@ -667,6 +667,102 @@ def main():
     f.write("Error type: {}\n".format(SA.errType))
     f.write("vinstru: {}\n".format(SA.vinstru))
     f.close()
+
+def plot_corner_linefit_bad():
+    import sys, re, glob, numpy as np, corner
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import os
+
+    print(os.getcwd())
+
+    outdir = sys.argv[1]                      # e.g. linefit_mystar
+    lines = sys.argv[2:]                      # optional: line numbers, e.g. 0 3 7
+
+    # field strengths (kG), read from the results-file header
+    if not os.path.isfile(f"{outdir}/linefit_results.txt"):
+        return 1
+    header = open(f"{outdir}/linefit_results.txt").read()
+    bs = np.array(re.search(r"with B = (.*) kG", header).group(1).split(), float)
+    nB = len(bs)
+
+    files = sorted(glob.glob(f"{outdir}/linefit_samples/line_*.npz"))
+    if lines:
+        files = [f for f in files if int(f[-8:-4]) in map(int, lines)]
+
+    for f in files:
+        d = np.load(f)
+        names = list(d["names"])                       # a0..aN, k, c0, [c1], Bmean
+        chain = d["chain"]                             # free parameters only
+        a1_n = chain[:, :nB - 1]
+        a0 = 1 - a1_n.sum(axis=1)
+        rest = chain[:, nB - 1:]                       # k, c0, [c1]
+        Bmean = np.column_stack([a0, a1_n]) @ bs
+        samples = np.column_stack([a0, a1_n, rest, Bmean])
+        fig = corner.corner(samples, labels=names, quantiles=[0.16, 0.5, 0.84],
+                            show_titles=True, title_fmt=".3f")
+        out = f.replace(".npz", "_corner.pdf")
+        fig.savefig(out)
+        plt.close(fig)
+        print("wrote", out)
+
+def plot_corner_linefit_per_line():
+    """One corner plot per line of its continuum level c0, line-depth factor k and
+    the shared <B> (from the same posterior samples).
+    Usage: python corner_lines.py linefit_shared_<star> [line numbers ...]"""
+    import sys
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import corner
+
+    out = sys.argv[1]
+    wanted = [int(x) for x in sys.argv[2:]]
+    s = np.load(out + "/shared_samples.npz")
+    p = np.load(out + "/shared_line_params.npz")
+    a = np.column_stack([1 - s["chain"].sum(axis=1), s["chain"]])
+    B = (a @ s["bs"])[p["draw_index"]]                     # <B> of the samples used for c0, k
+
+    for i, line in enumerate(p["lines"]):
+        if wanted and line not in wanted:
+            continue
+        x = np.column_stack([p["c0"][:, i], p["k"][:, i], B])
+        x = x[np.isfinite(x).all(axis=1)]
+        corner.corner(x, labels=["c0", "k", "Bmean"], quantiles=[0.16, 0.5, 0.84],
+                    show_titles=True, plot_datapoints=False)
+        plt.suptitle("line %d" % line)
+        plt.savefig("corner_line_%04d.png" % line, dpi=120)
+        plt.close()
+
+def plot_corner_linefit_full():
+    """Corner plot of the SHARED filling factors.
+    Usage: python corner_global.py linefit_shared_<star>"""
+    import sys
+    import numpy as np
+    import matplotlib.pyplot as plt
+    import corner
+
+    d = np.load(sys.argv[1] + "/shared_samples.npz")
+    chain, bs = d["chain"], d["bs"]                        # chain: a1..a(nB-1)
+    names = [str(n) for n in d["names"]] + ["Bmean"]       # a0..a(nB-1), Bmean
+
+    def full(theta):                                       # add derived a0 and <B>
+        a = np.column_stack([1 - theta.sum(axis=1), theta])
+        return np.column_stack([a, a @ bs])
+
+    corner.corner(full(chain), labels=names, truths=full(d["theta_map"][None])[0],
+                quantiles=[0.16, 0.5, 0.84], show_titles=True, plot_datapoints=False)
+    plt.savefig("corner_global.png", dpi=120)
+
+
+def plot_corner_linefit():
+    plot_corner_linefit_full()
+    plot_corner_linefit_per_line()
+
+def main():
+    status = plot_corner_linefit()
+    if status==1:
+        plot_corner_asap()
 
 if __name__ == "__main__":
     main()
