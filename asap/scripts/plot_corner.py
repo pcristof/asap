@@ -731,7 +731,7 @@ def plot_corner_linefit_per_line():
         corner.corner(x, labels=["c0", "k", "Bmean"], quantiles=[0.16, 0.5, 0.84],
                     show_titles=True, plot_datapoints=False)
         plt.suptitle("line %d" % line)
-        plt.savefig("corner_line_%04d.png" % line, dpi=120)
+        plt.savefig(out+"/corner_line_%04d.png" % line, dpi=120)
         plt.close()
 
 def plot_corner_linefit_full():
@@ -752,7 +752,7 @@ def plot_corner_linefit_full():
 
     corner.corner(full(chain), labels=names, truths=full(d["theta_map"][None])[0],
                 quantiles=[0.16, 0.5, 0.84], show_titles=True, plot_datapoints=False)
-    plt.savefig("corner_global.png", dpi=120)
+    plt.savefig(out+"/corner_global.png", dpi=120)
 
 
 def plot_corner_linefit():

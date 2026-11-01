@@ -40,3 +40,6 @@ def main():
             if args.interactive:
                 plt.show()
             plt.close(fig)
+
+if __name__ == "__main__":
+    main()
